@@ -24,10 +24,16 @@ pub struct ServerState {
     pub token: Arc<RwLock<String>>,
 }
 
+/// Logo oficial do Spark Bridge (embutido no binario).
+/// Servido em GET /logo.png e GET /icon.png para clientes MCP/agentes
+/// que solicitem o icone do servidor.
+const LOGO_PNG: &[u8] = include_bytes!("../icons/icon.png");
+
 #[derive(Serialize)]
 struct HealthResponse {
     status: &'static str,
     version: &'static str,
+    logo: &'static str,
 }
 
 #[derive(Serialize)]
@@ -113,7 +119,12 @@ async fn auth_middleware(
     let path = req.uri().path().to_string();
 
     // Preflight CORS e rotas publicas nao exigem autenticacao.
-    if req.method() == Method::OPTIONS || path == "/health" || path == "/openapi.json" {
+    if req.method() == Method::OPTIONS
+        || path == "/health"
+        || path == "/openapi.json"
+        || path == "/logo.png"
+        || path == "/icon.png"
+    {
         return Ok(next.run(req).await);
     }
 
@@ -151,7 +162,24 @@ async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
+        logo: "/logo.png",
     })
+}
+
+/// Serve o logo oficial do Spark Bridge (PNG embutido no binario).
+/// Qualquer cliente MCP/agente que solicite o icone do servidor
+/// recebe este arquivo em GET /logo.png (ou /icon.png).
+async fn logo() -> Response {
+    let mut resp = Bytes::from_static(LOGO_PNG).into_response();
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("image/png"),
+    );
+    resp.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    resp
 }
 
 async fn openapi_spec() -> Json<serde_json::Value> {
@@ -160,7 +188,8 @@ async fn openapi_spec() -> Json<serde_json::Value> {
         "info": {
             "title": "Spark Bridge PC Agent API",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "Control screen, mouse, keyboard, and terminal on the user's PC. MCP Streamable HTTP endpoint: POST /mcp"
+            "description": "Control screen, mouse, keyboard, and terminal on the user's PC. MCP Streamable HTTP endpoint: POST /mcp",
+            "x-logo": { "url": "/logo.png" }
         },
         "components": {
             "securitySchemes": {
@@ -1048,6 +1077,8 @@ pub async fn start_http_server(
 
     let app = Router::new()
         .route("/health", get(health))
+        .route("/logo.png", get(logo))
+        .route("/icon.png", get(logo))
         .route("/openapi.json", get(openapi_spec))
         .route("/", post(mcp_post).get(health))
         .route(
@@ -1127,6 +1158,18 @@ mod tests {
         // /health sem auth -> 200
         let h = client.get("http://127.0.0.1:4899/health").send().await.unwrap();
         assert_eq!(h.status().as_u16(), 200);
+
+        // /logo.png sem auth -> 200 image/png com magic bytes de PNG
+        let lg = client
+            .get("http://127.0.0.1:4899/logo.png")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(lg.status().as_u16(), 200);
+        let lg_ct = lg.headers().get("content-type").unwrap().to_str().unwrap();
+        assert!(lg_ct.contains("image/png"));
+        let lg_bytes = lg.bytes().await.unwrap();
+        assert!(lg_bytes.starts_with(&[0x89, b'P', b'N', b'G']));
 
         // Sem token -> 401
         let u = post_mcp(

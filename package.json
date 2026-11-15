@@ -1,6 +1,6 @@
 {
   "name": "spark-bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Lightweight PC bridge for AI agents (screen, input, terminal) with free public tunnel",
   "scripts": {
     "tauri": "tauri"
