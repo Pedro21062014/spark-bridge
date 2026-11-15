@@ -51,7 +51,8 @@ Tudo isso em um aplicativo desktop leve, com ícone na bandeja do sistema e opç
 | 🖼️ **Logo do servidor** | `GET /logo.png` (e `/icon.png`) serve o logo oficial embutido no binário, para clientes MCP/agentes que solicitem o ícone |
 | 🔍 **Teste de conexão integrado** | Botão **Testar conexão MCP** faz o handshake (`initialize` + `tools/list`) e mostra latência, versão e quantidade de ferramentas |
 | ⚙️ **Config pronta por cliente** | Gera o JSON para Claude Desktop, Cursor, VS Code e Gemini CLI com um clique |
-| 🖥️ **Controle de tela** | Captura a tela em JPEG (base64, máx. 1600px, com retry anti-frame-vazio) |
+| 🖥️ **Controle de tela** | Captura a tela em JPEG (base64, máx. 1600px, com retry anti-frame-vazio) + **URL da captura** para ver no navegador |
+| 👁️ **Visão em texto** | `screen_ascii` (prévia ASCII) e `ocr_screen` (palavras + coordenadas via tesseract) para clientes que não repassam imagens |
 | 🖱️ **Controle de mouse** | Mover, clicar (esquerdo/direito/meio, duplo), rolar e **arrastar** (drag & drop, selecionar texto) |
 | ⌨️ **Controle de teclado** | Digitar texto e pressionar teclas/atalhos (Ctrl, Alt, Shift, Meta) |
 | 💻 **Terminal** | Executar comandos no terminal do PC |
@@ -168,7 +169,7 @@ O Spark Bridge suporta dois formatos de autenticação:
 
 ## 🧰 Ferramentas MCP
 
-O servidor expõe **13 ferramentas** via `tools/list` / `tools/call`:
+O servidor expõe **15 ferramentas** via `tools/list` / `tools/call`:
 
 | Ferramenta | Parâmetros | Descrição |
 |---|---|---|
@@ -185,6 +186,8 @@ O servidor expõe **13 ferramentas** via `tools/list` / `tools/call`:
 | `clipboard_write` | `text` | Escreve texto na área de transferência |
 | `open_url` | `url` | Abre uma URL http(s) no navegador padrão |
 | `wait` | `ms` (máx. 30000) | Aguarda N milissegundos |
+| `screen_ascii` | — | Prévia da tela em arte ASCII (texto) — para clientes sem suporte a imagem |
+| `ocr_screen` | — | OCR da tela (requer `tesseract`): palavras visíveis com coordenadas (x, y) reais |
 
 Métodos JSON-RPC suportados: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/templates/list`, `prompts/list`, `logging/setLevel` e notificações (`notifications/*` → `202`).
 
@@ -215,6 +218,8 @@ Além do MCP, o servidor expõe endpoints REST (todos exigem token, exceto os p�
 | `GET` | `/clipboard` | ✅ | Lê o clipboard |
 | `POST` | `/clipboard` | ✅ | `{"text": "copiado"}` |
 | `POST` | `/open-url` | ✅ | `{"url": "https://exemplo.com"}` |
+| `GET` | `/screenshot.jpg` | ✅ | Última captura em JPEG (para ver no navegador) |
+| `GET` | `/screen/ocr` | ✅ | OCR da tela: palavras + coordenadas (requer `tesseract`) |
 
 **Exemplo (curl):**
 
@@ -297,7 +302,12 @@ Isso acontece quando o cliente MCP descarta a imagem ou quando o frame capturado
 
 Se ainda assim a IA relatar captura vazia, verifique: tela ligada e desbloqueada, permissão de captura de tela concedida (Linux/Wayland) e se o cliente MCP suporta conteúdo de imagem (`image/jpeg`).
 
-> **A IA recebe só a confirmação (“Screenshot 1600x...”) e não a imagem?** Isso indica que o **cliente MCP não repassa imagens ao modelo** (alguns clientes/agentes web são só-texto). O servidor já envia a imagem como **primeiro bloco** do resultado para maximizar compatibilidade. Para a IA *analisar* a tela, use um cliente com suporte a imagens em resultados MCP — ex.: **Claude Desktop**, **VS Code (Copilot)**, **Cursor** ou **Gemini CLI**.
+> **A IA recebe só a confirmação (“Screenshot 1600x...”) e não a imagem?** Isso indica que o **cliente MCP não repassa imagens ao modelo** (alguns clientes/agentes web são só-texto). O servidor já envia a imagem como **primeiro bloco** do resultado para maximizar compatibilidade. Para esses clientes, o Spark Bridge oferece **visão em texto**:
+> - `screen_ascii` — prévia da tela em arte ASCII (layout para decidir onde clicar/rolar);
+> - `ocr_screen` — palavras visíveis com coordenadas (x, y) reais (requer `tesseract` instalado: Windows `winget install UB-Mannheim.TesseractOCR`, Linux `sudo apt install tesseract-ocr`, macOS `brew install tesseract`);
+> - `GET /screenshot.jpg` — a última captura em JPEG, para **você** ver o print no navegador (o link com token vem no texto do `screen_capture`).
+>
+> Para a IA *analisar* a imagem diretamente, use um cliente com suporte a imagens em resultados MCP — ex.: **Claude Desktop**, **VS Code (Copilot)**, **Cursor** ou **Gemini CLI**.
 
 ---
 
@@ -365,8 +375,8 @@ As releases são criadas pelo workflow **Build & Release Spark Bridge** (`.githu
 # 2. Commit e push na main
 git push origin main
 # 3. Crie e envie a tag
-git tag v0.4.0
-git push origin v0.4.0
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
 O workflow compila para Linux, Windows e macOS e publica os instaladores na aba Releases. Também é possível rodar manualmente em **Actions → Build & Release Spark Bridge → Run workflow** informando a tag.

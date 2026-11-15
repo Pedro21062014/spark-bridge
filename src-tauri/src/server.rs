@@ -190,6 +190,33 @@ async fn health() -> Json<HealthResponse> {
     })
 }
 
+/// Serve a ultima captura de tela (JPEG) para visualizacao no navegador.
+/// Util para clientes MCP que nao repassam imagens ao modelo: o link
+/// (com token) e devolvido no bloco de texto de screen_capture.
+async fn latest_screenshot() -> Response {
+    match get_latest_screenshot() {
+        Some(bytes) => {
+            let mut resp = Bytes::from(bytes.as_ref().clone()).into_response();
+            resp.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("image/jpeg"),
+            );
+            resp.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-store"),
+            );
+            resp
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "Nenhuma captura ainda. Chame screen_capture primeiro."
+            })),
+        )
+            .into_response(),
+    }
+}
+
 /// Serve o logo oficial do Spark Bridge (PNG embutido no binario).
 /// Qualquer cliente MCP/agente que solicite o icone do servidor
 /// recebe este arquivo em GET /logo.png (ou /icon.png).
@@ -330,6 +357,18 @@ async fn openapi_spec() -> Json<serde_json::Value> {
                     },
                     "responses": { "200": { "description": "URL opened" } }
                 }
+            },
+            "/screenshot.jpg": {
+                "get": {
+                    "summary": "Latest screenshot as JPEG (for viewing in browser)",
+                    "responses": { "200": { "description": "JPEG image" } }
+                }
+            },
+            "/screen/ocr": {
+                "get": {
+                    "summary": "OCR the screen via tesseract (words + coordinates)",
+                    "responses": { "200": { "description": "OCR words with coordinates" } }
+                }
             }
         }
     }))
@@ -384,9 +423,36 @@ fn downscale_to_max(img: DynamicImage, max_dim: u32) -> DynamicImage {
 /// Captura a tela principal e devolve (bytes JPEG, largura, altura).
 /// Tenta ate 3 vezes, descartando frames em branco/0x0, e sempre devolve
 /// JPEG reduzido (max. 1600px) para caber nos limites dos clientes MCP.
-fn capture_primary_screen_blocking() -> Result<(Vec<u8>, u32, u32), String> {
-    const MAX_DIM: u32 = 1600;
+/// Ultima captura JPEG (para GET /screenshot.jpg) e token atual do servidor
+/// (para montar a URL da captura no texto de screen_capture).
+static LATEST_SCREENSHOT: std::sync::OnceLock<std::sync::Mutex<Option<std::sync::Arc<Vec<u8>>>>> =
+    std::sync::OnceLock::new();
+static SERVER_TOKEN: std::sync::OnceLock<
+    std::sync::Mutex<Option<std::sync::Arc<tokio::sync::RwLock<String>>>>,
+> = std::sync::OnceLock::new();
 
+fn latest_screenshot_slot() -> &'static std::sync::Mutex<Option<std::sync::Arc<Vec<u8>>>> {
+    LATEST_SCREENSHOT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn server_token_slot(
+) -> &'static std::sync::Mutex<Option<std::sync::Arc<tokio::sync::RwLock<String>>>> {
+    SERVER_TOKEN.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn set_latest_screenshot(bytes: Vec<u8>) {
+    *latest_screenshot_slot().lock().unwrap() = Some(std::sync::Arc::new(bytes));
+}
+
+fn get_latest_screenshot() -> Option<std::sync::Arc<Vec<u8>>> {
+    latest_screenshot_slot().lock().unwrap().clone()
+}
+
+/// Captura a tela principal e devolve (bytes RGB, largura, altura).
+/// `max_dim = Some(n)` reduz para no maximo n px no maior lado;
+/// `None` devolve a resolucao original (usado pelo OCR, para as
+/// coordenadas baterem com a tela real).
+fn capture_primary_screen_rgb(max_dim: Option<u32>) -> Result<(Vec<u8>, u32, u32), String> {
     let mut monitors =
         Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
     if monitors.is_empty() {
@@ -423,15 +489,15 @@ fn capture_primary_screen_blocking() -> Result<(Vec<u8>, u32, u32), String> {
                     last_err = "frame em branco/preto".to_string();
                     continue;
                 }
-                let small = downscale_to_max(DynamicImage::ImageRgb8(rgb), MAX_DIM);
-                let (sw, sh) = (small.width(), small.height());
-                let mut jpeg_bytes: Vec<u8> = Vec::new();
-                let mut cursor = Cursor::new(&mut jpeg_bytes);
-                if let Err(e) = small.write_to(&mut cursor, image::ImageFormat::Jpeg) {
-                    last_err = format!("Failed to encode JPEG: {}", e);
-                    continue;
-                }
-                return Ok((jpeg_bytes, sw, sh));
+                let (out_w, out_h, out_raw) = match max_dim {
+                    Some(m) => {
+                        let small = downscale_to_max(DynamicImage::ImageRgb8(rgb), m);
+                        let (sw, sh) = (small.width(), small.height());
+                        (sw, sh, small.to_rgb8().into_raw())
+                    }
+                    None => (w, h, rgb.into_raw()),
+                };
+                return Ok((out_raw, out_w, out_h));
             }
             Err(e) => {
                 last_err = e.to_string();
@@ -445,8 +511,125 @@ fn capture_primary_screen_blocking() -> Result<(Vec<u8>, u32, u32), String> {
     ))
 }
 
+/// Captura a tela e devolve (bytes JPEG, largura, altura), atualizando o
+/// cache servido em GET /screenshot.jpg.
+fn capture_primary_screen_jpeg(max_dim: Option<u32>) -> Result<(Vec<u8>, u32, u32), String> {
+    let (rgb_raw, w, h) = capture_primary_screen_rgb(max_dim)?;
+    let img = DynamicImage::ImageRgb8(
+        ImageBuffer::from_raw(w, h, rgb_raw).ok_or("Failed to build image buffer".to_string())?,
+    );
+    let mut jpeg_bytes: Vec<u8> = Vec::new();
+    let mut cursor = Cursor::new(&mut jpeg_bytes);
+    img.write_to(&mut cursor, image::ImageFormat::Jpeg)
+        .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
+    set_latest_screenshot(jpeg_bytes.clone());
+    Ok((jpeg_bytes, w, h))
+}
+
+/// Renderiza a captura como arte ASCII (texto) para clientes MCP que
+/// nao repassam imagens ao modelo — a IA enxerga o layout da tela em texto.
+fn rgb_to_ascii(rgb: &[u8], w: u32, h: u32, cols: usize) -> String {
+    let img = match ImageBuffer::from_raw(w, h, rgb.to_vec()) {
+        Some(b) => DynamicImage::ImageRgb8(b),
+        None => return String::new(),
+    };
+    let rows = ((cols as f32 * h as f32 / w as f32 / 2.0) as u32).max(1);
+    let small = img.resize(cols as u32, rows, image::imageops::FilterType::Triangle);
+    let gray = small.to_luma8();
+    let chars = " .:-=+*#%@";
+    let mut out = String::new();
+    for y in 0..gray.height() {
+        for x in 0..gray.width() {
+            let lum = gray.get_pixel(x, y)[0] as usize;
+            // Telas sao majoritariamente claras: inverte para fundo=espaco.
+            let idx = (255 - lum) * (chars.len() - 1) / 255;
+            out.push(chars.as_bytes()[idx] as char);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Extrai palavras do TSV do tesseract (nivel 5 = palavra).
+fn parse_tsv_words(tsv: &str) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for line in tsv.lines().skip(1) {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f.len() < 12 || f[0] != "5" {
+            continue;
+        }
+        let conf: f32 = f[10].parse().unwrap_or(-1.0);
+        let text = f[11].trim();
+        if conf <= 0.0 || text.is_empty() {
+            continue;
+        }
+        out.push(serde_json::json!({
+            "text": text,
+            "x": f[6].parse::<u32>().unwrap_or(0),
+            "y": f[7].parse::<u32>().unwrap_or(0),
+            "w": f[8].parse::<u32>().unwrap_or(0),
+            "h": f[9].parse::<u32>().unwrap_or(0),
+            "conf": conf,
+        }));
+    }
+    out
+}
+
+/// Captura em resolucao original e roda OCR via `tesseract` (se instalado).
+/// Devolve {width, height, words: [{text, x, y, w, h, conf}]} com
+/// coordenadas na escala real da tela.
+async fn ocr_current_screen() -> Result<serde_json::Value, String> {
+    let (jpeg, w, h) = tokio::task::spawn_blocking(|| capture_primary_screen_jpeg(None))
+        .await
+        .map_err(|e| e.to_string())??;
+
+    let tmp_path = std::env::temp_dir().join(format!(
+        "spark-ocr-{}-{}.jpg",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::write(&tmp_path, &jpeg).map_err(|e| e.to_string())?;
+
+    let output = tokio::process::Command::new("tesseract")
+        .arg(&tmp_path)
+        .arg("stdout")
+        .arg("tsv")
+        .output()
+        .await;
+    let _ = std::fs::remove_file(&tmp_path);
+
+    let output = match output {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(
+                "tesseract nao encontrado no PATH. Instale para usar OCR: Windows: winget install UB-Mannheim.TesseractOCR | Linux: sudo apt install tesseract-ocr | macOS: brew install tesseract"
+                    .to_string(),
+            );
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+
+    if !output.status.success() {
+        return Err(format!(
+            "tesseract falhou: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let tsv = String::from_utf8_lossy(&output.stdout).to_string();
+    Ok(serde_json::json!({
+        "width": w,
+        "height": h,
+        "words": parse_tsv_words(&tsv),
+    }))
+}
+
 async fn get_screen() -> impl IntoResponse {
-    let res = tokio::task::spawn_blocking(capture_primary_screen_blocking).await;
+    let res =
+        tokio::task::spawn_blocking(|| capture_primary_screen_jpeg(Some(1600))).await;
 
     match res {
         Ok(Ok((bytes, width, height))) => (
@@ -847,6 +1030,17 @@ async fn screen_info() -> impl IntoResponse {
     }
 }
 
+async fn ocr_screen_rest() -> impl IntoResponse {
+    match ocr_current_screen().await {
+        Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
 async fn clipboard_read() -> impl IntoResponse {
     let res = tokio::task::spawn_blocking(|| -> Result<String, String> {
         let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
@@ -1131,6 +1325,16 @@ fn mcp_tools_list() -> serde_json::Value {
                     },
                     "required": ["ms"]
                 }
+            },
+            {
+                "name": "screen_ascii",
+                "description": "Text-only preview of the screen as ASCII art (for clients that do not forward images to the model). Shows layout to decide where to click/scroll.",
+                "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "ocr_screen",
+                "description": "OCR the screen (requires tesseract installed) and return visible words with (x, y) coordinates in real screen pixels. Best for precise clicking on text-only clients.",
+                "inputSchema": { "type": "object", "properties": {} }
             }
         ]
     })
@@ -1139,22 +1343,35 @@ fn mcp_tools_list() -> serde_json::Value {
 async fn call_tool(name: &str, args: serde_json::Value) -> (serde_json::Value, bool) {
     match name {
         "screen_capture" => {
-            let res = tokio::task::spawn_blocking(capture_primary_screen_blocking).await;
+            let res =
+                tokio::task::spawn_blocking(|| capture_primary_screen_jpeg(Some(1600))).await;
             match res {
-                Ok(Ok((bytes, w, h))) => (
+                Ok(Ok((bytes, w, h))) => {
                     // A imagem vem PRIMEIRO: alguns clientes MCP leem apenas o
                     // primeiro bloco de conteudo ou truncam o resultado — assim
                     // a captura chega ao modelo em vez de so a confirmacao textual.
-                    serde_json::json!([
-                        {
-                            "type": "image",
-                            "data": BASE64.encode(&bytes),
-                            "mimeType": "image/jpeg"
-                        },
-                        { "type": "text", "text": format!("Screenshot {}x{} (JPEG)", w, h) }
-                    ]),
-                    false,
-                ),
+                    // O texto inclui a URL da captura (para clientes so-texto
+                    // e para o usuario visualizar o print no navegador).
+                    let token_arc = server_token_slot().lock().unwrap().clone();
+                    let token_str = match token_arc {
+                        Some(t) => t.read().await.clone(),
+                        None => String::new(),
+                    };
+                    (
+                        serde_json::json!([
+                            {
+                                "type": "image",
+                                "data": BASE64.encode(&bytes),
+                                "mimeType": "image/jpeg"
+                            },
+                            { "type": "text", "text": format!(
+                                "Screenshot {}x{} (JPEG). Ver imagem: /screenshot.jpg?token={} (prefixe com a URL do tunel). Para clientes sem suporte a imagem, use screen_ascii ou ocr_screen.",
+                                w, h, token_str
+                            ) }
+                        ]),
+                        false,
+                    )
+                }
                 Ok(Err(e)) => (
                     serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
                     true,
@@ -1382,6 +1599,38 @@ async fn call_tool(name: &str, args: serde_json::Value) -> (serde_json::Value, b
                 ),
             }
         }
+        "screen_ascii" => {
+            let res = tokio::task::spawn_blocking(|| -> Result<String, String> {
+                let (rgb, w, h) = capture_primary_screen_rgb(Some(1600))?;
+                let art = rgb_to_ascii(&rgb, w, h, 120);
+                Ok(format!("Screen {}x{} (ASCII preview):\n{}", w, h, art))
+            })
+            .await;
+            match res {
+                Ok(Ok(text)) => (
+                    serde_json::json!([{ "type": "text", "text": text }]),
+                    false,
+                ),
+                Ok(Err(e)) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                    true,
+                ),
+                Err(e) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                    true,
+                ),
+            }
+        }
+        "ocr_screen" => match ocr_current_screen().await {
+            Ok(v) => (
+                serde_json::json!([{ "type": "text", "text": v.to_string() }]),
+                false,
+            ),
+            Err(e) => (
+                serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                true,
+            ),
+        },
         _ => (
             serde_json::json!([{ "type": "text", "text": format!("Unknown tool: {}", name) }]),
             true,
@@ -1568,6 +1817,8 @@ pub async fn start_http_server(
     token: Arc<RwLock<String>>,
     shutdown_rx: oneshot::Receiver<()>,
 ) -> Result<(), String> {
+    // Registra o token atual para montar a URL da captura no screen_capture.
+    *server_token_slot().lock().unwrap() = Some(token.clone());
     let state = ServerState { token };
 
     let cors = CorsLayer::new()
@@ -1593,6 +1844,8 @@ pub async fn start_http_server(
         )
         .route("/screen", get(get_screen))
         .route("/screen/info", get(screen_info))
+        .route("/screen/ocr", get(ocr_screen_rest))
+        .route("/screenshot.jpg", get(latest_screenshot))
         .route("/mouse/move", post(mouse_move))
         .route("/mouse/click", post(mouse_click))
         .route("/mouse/scroll", post(mouse_scroll))
@@ -1623,8 +1876,31 @@ pub async fn start_http_server(
 
 #[cfg(test)]
 mod tests {
-    use super::{downscale_to_max, is_blank_rgb, start_http_server};
+    use super::{downscale_to_max, is_blank_rgb, parse_tsv_words, rgb_to_ascii, start_http_server};
     use image::DynamicImage;
+
+    #[test]
+    fn tsv_words_parsing() {
+        let tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t20\t50\t12\t95.5\tOla\n5\t1\t1\t1\t1\t2\t70\t20\t60\t12\t88.0\tmundo\n1\t1\t1\t1\t1\t0\t0\t0\t100\t100\t-1\t";
+        let words = parse_tsv_words(tsv);
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0]["text"], "Ola");
+        assert_eq!(words[0]["x"], 10);
+        assert_eq!(words[1]["text"], "mundo");
+    }
+
+    #[test]
+    fn ascii_renders() {
+        // Imagem branca 64x32 -> arte so com espacos/quebras.
+        let white = vec![255u8; 64 * 32 * 3];
+        let art = rgb_to_ascii(&white, 64, 32, 32);
+        assert!(!art.is_empty());
+        assert!(art.contains('\n'));
+        // Imagem preta -> caracteres densos presentes.
+        let black = vec![0u8; 64 * 32 * 3];
+        let art2 = rgb_to_ascii(&black, 64, 32, 32);
+        assert!(art2.contains('@'));
+    }
 
     #[test]
     fn blank_detection() {
@@ -1737,7 +2013,7 @@ mod tests {
         .await;
         assert_eq!(notif.status().as_u16(), 202);
 
-        // tools/list -> 13 ferramentas
+        // tools/list -> 15 ferramentas
         let list = post_mcp(
             &client,
             base,
@@ -1745,7 +2021,15 @@ mod tests {
         )
         .await;
         let list_body: serde_json::Value = list.json().await.unwrap();
-        assert_eq!(list_body["result"]["tools"].as_array().unwrap().len(), 13);
+        assert_eq!(list_body["result"]["tools"].as_array().unwrap().len(), 15);
+
+        // /screenshot.jpg sem captura previa -> 404 (com token)
+        let shot = client
+            .get("http://127.0.0.1:4899/screenshot.jpg?token=test-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(shot.status().as_u16(), 404);
 
         // tools/call desconhecida -> isError true
         let call = post_mcp(
