@@ -571,6 +571,286 @@ async fn terminal_exec(Json(req): Json<TerminalExecReq>) -> impl IntoResponse {
     }
 }
 
+#[derive(Deserialize)]
+struct McpRequest {
+    #[allow(dead_code)]
+    jsonrpc: Option<String>,
+    id: Option<serde_json::Value>,
+    method: String,
+    params: Option<serde_json::Value>,
+}
+
+fn mcp_tools_list() -> serde_json::Value {
+    serde_json::json!({
+        "tools": [
+            {
+                "name": "screen_capture",
+                "description": "Capture the user's primary screen as a PNG image.",
+                "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "mouse_move",
+                "description": "Move the mouse cursor to (x, y) coordinates.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "integer" },
+                        "y": { "type": "integer" }
+                    },
+                    "required": ["x", "y"]
+                }
+            },
+            {
+                "name": "mouse_click",
+                "description": "Click a mouse button (left, right, middle) optionally at (x, y).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "integer" },
+                        "y": { "type": "integer" },
+                        "button": { "type": "string", "enum": ["left", "right", "middle"] },
+                        "double": { "type": "boolean" }
+                    }
+                }
+            },
+            {
+                "name": "mouse_scroll",
+                "description": "Scroll the mouse wheel horizontally or vertically.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "delta_x": { "type": "integer" },
+                        "delta_y": { "type": "integer" }
+                    }
+                }
+            },
+            {
+                "name": "keyboard_type",
+                "description": "Type text on the keyboard.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "text": { "type": "string" }
+                    },
+                    "required": ["text"]
+                }
+            },
+            {
+                "name": "keyboard_key",
+                "description": "Press a key with optional modifiers (ctrl, alt, shift, meta).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string" },
+                        "modifiers": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["key"]
+                }
+            },
+            {
+                "name": "terminal_exec",
+                "description": "Execute a shell command in the PC terminal.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string" },
+                        "cwd": { "type": "string" }
+                    },
+                    "required": ["command"]
+                }
+            }
+        ]
+    })
+}
+
+async fn mcp_handler(Json(req): Json<McpRequest>) -> impl IntoResponse {
+    let id = req.id.unwrap_or(serde_json::Value::Null);
+
+    match req.method.as_str() {
+        "initialize" => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": { "tools": {} },
+                    "serverInfo": {
+                        "name": "spark-bridge",
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
+                }
+            })),
+        )
+            .into_response(),
+        "notifications/initialized" | "ping" => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {}
+            })),
+        )
+            .into_response(),
+        "tools/list" => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": mcp_tools_list()
+            })),
+        )
+            .into_response(),
+        "tools/call" => {
+            let params = req.params.unwrap_or_default();
+            let name = params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let args = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+
+            let content = match name {
+                "screen_capture" => {
+                    let res = tokio::task::spawn_blocking(|| -> Result<String, String> {
+                        let monitors = Monitor::all().map_err(|e| e.to_string())?;
+                        let monitor = monitors
+                            .into_iter()
+                            .find(|m| m.is_primary().unwrap_or(false))
+                            .or_else(|| Monitor::all().ok()?.into_iter().next())
+                            .ok_or_else(|| "No monitor found".to_string())?;
+                        let img = monitor.capture_image().map_err(|e| e.to_string())?;
+                        let rgba: ImageBuffer<Rgba<u8>, Vec<u8>> =
+                            ImageBuffer::from_raw(img.width(), img.height(), img.into_raw())
+                                .ok_or_else(|| "Failed to build image buffer".to_string())?;
+                        let mut png_bytes = Vec::new();
+                        let mut cursor = Cursor::new(&mut png_bytes);
+                        rgba.write_to(&mut cursor, image::ImageFormat::Png)
+                            .map_err(|e| e.to_string())?;
+                        Ok(BASE64.encode(&png_bytes))
+                    })
+                    .await;
+                    match res {
+                        Ok(Ok(b64)) => serde_json::json!([{
+                            "type": "image",
+                            "data": b64,
+                            "mimeType": "image/png"
+                        }]),
+                        Ok(Err(e)) => serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                        Err(e) => serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                    }
+                }
+                "mouse_move" => {
+                    let parsed: Result<MouseMoveReq, _> = serde_json::from_value(args);
+                    match parsed {
+                        Ok(r) => {
+                            let _ = mouse_move(Json(r)).await;
+                            serde_json::json!([{ "type": "text", "text": "Mouse moved" }])
+                        }
+                        Err(e) => serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    }
+                }
+                "mouse_click" => {
+                    let parsed: Result<MouseClickReq, _> = serde_json::from_value(args);
+                    match parsed {
+                        Ok(r) => {
+                            let _ = mouse_click(Json(r)).await;
+                            serde_json::json!([{ "type": "text", "text": "Mouse clicked" }])
+                        }
+                        Err(e) => serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    }
+                }
+                "mouse_scroll" => {
+                    let parsed: Result<MouseScrollReq, _> = serde_json::from_value(args);
+                    match parsed {
+                        Ok(r) => {
+                            let _ = mouse_scroll(Json(r)).await;
+                            serde_json::json!([{ "type": "text", "text": "Scrolled" }])
+                        }
+                        Err(e) => serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    }
+                }
+                "keyboard_type" => {
+                    let parsed: Result<KeyboardTypeReq, _> = serde_json::from_value(args);
+                    match parsed {
+                        Ok(r) => {
+                            let _ = keyboard_type(Json(r)).await;
+                            serde_json::json!([{ "type": "text", "text": "Text typed" }])
+                        }
+                        Err(e) => serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    }
+                }
+                "keyboard_key" => {
+                    let parsed: Result<KeyboardKeyReq, _> = serde_json::from_value(args);
+                    match parsed {
+                        Ok(r) => {
+                            let _ = keyboard_key(Json(r)).await;
+                            serde_json::json!([{ "type": "text", "text": "Key pressed" }])
+                        }
+                        Err(e) => serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    }
+                }
+                "terminal_exec" => {
+                    let parsed: Result<TerminalExecReq, _> = serde_json::from_value(args);
+                    match parsed {
+                        Ok(r) => {
+                            let mut cmd = if cfg!(target_os = "windows") {
+                                let mut c = Command::new("cmd");
+                                c.args(["/C", &r.command]);
+                                c
+                            } else {
+                                let mut c = Command::new("sh");
+                                c.args(["-c", &r.command]);
+                                c
+                            };
+                            if let Some(cwd) = r.cwd {
+                                if !cwd.is_empty() {
+                                    cmd.current_dir(cwd);
+                                }
+                            }
+                            match cmd.output().await {
+                                Ok(out) => {
+                                    let stdout = String::from_utf8_lossy(&out.stdout);
+                                    let stderr = String::from_utf8_lossy(&out.stderr);
+                                    let code = out.status.code().unwrap_or(-1);
+                                    serde_json::json!([{
+                                        "type": "text",
+                                        "text": format!("exit_code: {}\nstdout:\n{}\nstderr:\n{}", code, stdout, stderr)
+                                    }])
+                                }
+                                Err(e) => serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                            }
+                        }
+                        Err(e) => serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    }
+                }
+                _ => serde_json::json!([{ "type": "text", "text": format!("Unknown tool: {}", name) }]),
+            };
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": { "content": content }
+                })),
+            )
+                .into_response()
+        }
+        _ => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": -32601, "message": "Method not found" }
+            })),
+        )
+            .into_response(),
+    }
+}
+
 pub async fn start_http_server(
     port: u16,
     token: String,
@@ -588,6 +868,8 @@ pub async fn start_http_server(
     let app = Router::new()
         .route("/health", get(health))
         .route("/openapi.json", get(openapi_spec))
+        .route("/", post(mcp_handler).get(health))
+        .route("/mcp", post(mcp_handler).get(health))
         .route("/screen", get(get_screen))
         .route("/mouse/move", post(mouse_move))
         .route("/mouse/click", post(mouse_click))
