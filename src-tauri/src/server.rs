@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tokio::process::Command;
 use tokio::sync::oneshot;
 use tower_http::cors::{Any, CorsLayer};
-use xcap::Monitor;
+use screenshots::Screen;
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -212,15 +212,15 @@ async fn openapi_spec() -> Json<serde_json::Value> {
 
 async fn get_screen() -> impl IntoResponse {
     let res = tokio::task::spawn_blocking(|| -> Result<ScreenResponse, String> {
-        let monitors = Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
-        let monitor = monitors
+        let screens = Screen::all().map_err(|e| format!("Failed to list screens: {}", e))?;
+        let screen = screens
             .into_iter()
-            .find(|m| m.is_primary())
-            .or_else(|| Monitor::all().ok()?.into_iter().next())
-            .ok_or_else(|| "No monitor found".to_string())?;
+            .find(|s| s.display_info.is_primary)
+            .or_else(|| Screen::all().ok()?.into_iter().next())
+            .ok_or_else(|| "No screen found".to_string())?;
 
-        let img = monitor
-            .capture_image()
+        let img = screen
+            .capture()
             .map_err(|e| format!("Failed to capture screen: {}", e))?;
 
         let width = img.width();
