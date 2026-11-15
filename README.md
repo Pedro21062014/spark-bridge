@@ -52,9 +52,13 @@ Tudo isso em um aplicativo desktop leve, com ícone na bandeja do sistema e opç
 | 🔍 **Teste de conexão integrado** | Botão **Testar conexão MCP** faz o handshake (`initialize` + `tools/list`) e mostra latência, versão e quantidade de ferramentas |
 | ⚙️ **Config pronta por cliente** | Gera o JSON para Claude Desktop, Cursor, VS Code e Gemini CLI com um clique |
 | 🖥️ **Controle de tela** | Captura a tela em JPEG (base64, máx. 1600px, com retry anti-frame-vazio) |
-| 🖱️ **Controle de mouse** | Mover, clicar (esquerdo/direito/meio, duplo) e rolar |
+| 🖱️ **Controle de mouse** | Mover, clicar (esquerdo/direito/meio, duplo), rolar e **arrastar** (drag & drop, selecionar texto) |
 | ⌨️ **Controle de teclado** | Digitar texto e pressionar teclas/atalhos (Ctrl, Alt, Shift, Meta) |
 | 💻 **Terminal** | Executar comandos no terminal do PC |
+| 📋 **Área de transferência** | Ler e escrever o clipboard do sistema |
+| 🖥️ **Info da tela** | Resolução e monitores (para calibrar coordenadas) |
+| 🔗 **Abrir URL** | Abre links http(s) no navegador padrão |
+| ⏳ **Esperar** | Pausa por N ms (útil após abrir apps) |
 | 🔄 **Executar em segundo plano** | Minimiza para a bandeja do sistema ao fechar a janela |
 | 🚀 **Iniciar com o sistema** | Abre automaticamente quando o PC ligar |
 | 🔑 **Regenerar token** | Gera um novo token de segurança a qualquer momento |
@@ -146,12 +150,13 @@ O Spark Bridge suporta dois formatos de autenticação:
 
 ### Gemini CLI (`~/.gemini/settings.json`)
 
+> ⚠️ No Gemini, use o **token na URL** (`?token=...`). O Gemini CLI nem sempre envia headers customizados — sem o token, o servidor responde `401` e o Gemini pede **OAuth** (que o Spark Bridge não usa).
+
 ```json
 {
   "mcpServers": {
     "spark-bridge": {
-      "httpUrl": "https://SEU-TUNEL.trycloudflare.com/mcp",
-      "headers": { "Authorization": "Bearer sb_SEU_TOKEN" }
+      "httpUrl": "https://SEU-TUNEL.trycloudflare.com/mcp?token=sb_SEU_TOKEN"
     }
   }
 }
@@ -163,7 +168,7 @@ O Spark Bridge suporta dois formatos de autenticação:
 
 ## 🧰 Ferramentas MCP
 
-O servidor expõe **7 ferramentas** via `tools/list` / `tools/call`:
+O servidor expõe **13 ferramentas** via `tools/list` / `tools/call`:
 
 | Ferramenta | Parâmetros | Descrição |
 |---|---|---|
@@ -174,6 +179,12 @@ O servidor expõe **7 ferramentas** via `tools/list` / `tools/call`:
 | `keyboard_type` | `text` | Digita o texto |
 | `keyboard_key` | `key`, `modifiers?` (`ctrl`, `alt`, `shift`, `meta`) | Pressiona uma tecla/atalho |
 | `terminal_exec` | `command`, `cwd?` | Executa um comando no terminal e retorna stdout/stderr/exit_code |
+| `mouse_drag` | `x1`, `y1`, `x2`, `y2`, `button?` | Arrasta o mouse de (x1, y1) para (x2, y2) segurando o botão |
+| `get_screen_info` | — | Retorna monitores (nome, resolução, principal) |
+| `clipboard_read` | — | Lê o texto da área de transferência |
+| `clipboard_write` | `text` | Escreve texto na área de transferência |
+| `open_url` | `url` | Abre uma URL http(s) no navegador padrão |
+| `wait` | `ms` (máx. 30000) | Aguarda N milissegundos |
 
 Métodos JSON-RPC suportados: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/templates/list`, `prompts/list`, `logging/setLevel` e notificações (`notifications/*` → `202`).
 
@@ -199,6 +210,11 @@ Além do MCP, o servidor expõe endpoints REST (todos exigem token, exceto os p�
 | `POST` | `/keyboard/type` | ✅ | `{"text": "olá"}` |
 | `POST` | `/keyboard/key` | ✅ | `{"key": "s", "modifiers": ["ctrl"]}` |
 | `POST` | `/terminal/exec` | ✅ | `{"command": "ls", "cwd": "/home/user"}` |
+| `POST` | `/mouse/drag` | ✅ | `{"x1": 100, "y1": 100, "x2": 400, "y2": 300}` |
+| `GET` | `/screen/info` | ✅ | Info dos monitores (resolução, principal) |
+| `GET` | `/clipboard` | ✅ | Lê o clipboard |
+| `POST` | `/clipboard` | ✅ | `{"text": "copiado"}` |
+| `POST` | `/open-url` | ✅ | `{"url": "https://exemplo.com"}` |
 
 **Exemplo (curl):**
 
@@ -244,6 +260,10 @@ Esse erro significa que o cliente não conseguiu completar o handshake MCP. Veri
 ### Erro 401 (Unauthorized)
 
 Token inválido ou ausente. Confira se copiou o token atual (ele muda a cada início) ou use o botão **↻ Novo** para gerar um novo token e atualize a configuração do cliente.
+
+### Gemini: “usa um método de autenticação que o Gemini não aceita / exige OAuth”
+
+O Spark Bridge autentica com **token Bearer ou `?token=` na URL** (não usa OAuth). Quando o Gemini recebe `401`, ele tenta o fluxo OAuth padrão e falha. Isso acontece quando o token não chega ao servidor — o Gemini CLI nem sempre envia headers customizados. **Solução:** no `settings.json` do Gemini CLI, use a URL **completa com `?token=`** (a interface já gera esse formato na aba de configuração). Observação: o app web do Gemini (gemini.google.com) exige OAuth para conectores e não aceita token Bearer — use o **Gemini CLI** para conectar no Spark Bridge.
 
 ### O túnel não conecta / timeout
 
@@ -345,8 +365,8 @@ As releases são criadas pelo workflow **Build & Release Spark Bridge** (`.githu
 # 2. Commit e push na main
 git push origin main
 # 3. Crie e envie a tag
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 O workflow compila para Linux, Windows e macOS e publica os instaladores na aba Releases. Também é possível rodar manualmente em **Actions → Build & Release Spark Bridge → Run workflow** informando a tag.

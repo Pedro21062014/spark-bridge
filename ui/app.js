@@ -1,6 +1,36 @@
 const hasTauri = !!(window.__TAURI__ && window.__TAURI__.core);
 const invoke = hasTauri ? window.__TAURI__.core.invoke : null;
 
+// ---------- Tema claro/escuro ----------
+const themeToggle = document.getElementById("theme-toggle");
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  themeToggle.textContent = theme === "light" ? "🌙" : "☀️";
+  try {
+    localStorage.setItem("spark-theme", theme);
+  } catch {
+    // localStorage indisponivel (ex.: preview) — ignora
+  }
+}
+
+function loadTheme() {
+  let theme = "dark";
+  try {
+    theme = localStorage.getItem("spark-theme") || "dark";
+  } catch {
+    theme = "dark";
+  }
+  applyTheme(theme);
+}
+
+themeToggle.addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  applyTheme(current === "light" ? "dark" : "light");
+});
+
+loadTheme();
+
 const toggleBtn = document.getElementById("toggle-btn");
 const btnText = document.getElementById("btn-text");
 const statusBadge = document.getElementById("status-badge");
@@ -39,7 +69,7 @@ const CLIENT_HINTS = {
   claude: "Cole em claude_desktop_config.json e reinicie o Claude Desktop.",
   cursor: "Cole em .cursor/mcp.json (ou nas configurações de MCP do Cursor).",
   vscode: "Cole em .vscode/mcp.json e clique em Start no VS Code.",
-  gemini: "Cole em ~/.gemini/settings.json (Gemini CLI).",
+  gemini: "Cole em ~/.gemini/settings.json (Gemini CLI). Usa token na URL (evita erro de OAuth).",
   generic: "Use a URL com ?token=... ou a URL base + header Authorization.",
 };
 
@@ -110,12 +140,13 @@ function buildConfig(client, status) {
         2
       );
     case "gemini":
+      // O Gemini CLI nem sempre envia headers customizados — com o token
+      // na URL (?token=) ele sempre chega e evita o erro de OAuth/401.
       return JSON.stringify(
         {
           mcpServers: {
             "spark-bridge": {
-              httpUrl: base,
-              headers: { Authorization: bearer },
+              httpUrl: mcpFullUrl(status),
             },
           },
         },

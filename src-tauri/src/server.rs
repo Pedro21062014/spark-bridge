@@ -81,6 +81,30 @@ pub struct TerminalExecReq {
     pub cwd: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct MouseDragReq {
+    pub x1: i32,
+    pub y1: i32,
+    pub x2: i32,
+    pub y2: i32,
+    pub button: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ClipboardWriteReq {
+    pub text: String,
+}
+
+#[derive(Deserialize)]
+pub struct OpenUrlReq {
+    pub url: String,
+}
+
+#[derive(Deserialize)]
+pub struct WaitReq {
+    pub ms: u64,
+}
+
 #[derive(Serialize)]
 struct TerminalExecRes {
     stdout: String,
@@ -265,6 +289,46 @@ async fn openapi_spec() -> Json<serde_json::Value> {
                         "content": { "application/json": { "schema": { "type": "object", "properties": { "command": { "type": "string" }, "cwd": { "type": "string" } }, "required": ["command"] } } }
                     },
                     "responses": { "200": { "description": "Command output" } }
+                }
+            },
+            "/mouse/drag": {
+                "post": {
+                    "summary": "Drag mouse from (x1, y1) to (x2, y2)",
+                    "requestBody": {
+                        "required": true,
+                        "content": { "application/json": { "schema": { "type": "object", "properties": { "x1": { "type": "integer" }, "y1": { "type": "integer" }, "x2": { "type": "integer" }, "y2": { "type": "integer" }, "button": { "type": "string" } }, "required": ["x1", "y1", "x2", "y2"] } } }
+                    },
+                    "responses": { "200": { "description": "Mouse dragged" } }
+                }
+            },
+            "/screen/info": {
+                "get": {
+                    "summary": "Monitor info (name, resolution, primary)",
+                    "responses": { "200": { "description": "Monitor info" } }
+                }
+            },
+            "/clipboard": {
+                "get": {
+                    "summary": "Read clipboard text",
+                    "responses": { "200": { "description": "Clipboard text" } }
+                },
+                "post": {
+                    "summary": "Write clipboard text",
+                    "requestBody": {
+                        "required": true,
+                        "content": { "application/json": { "schema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] } } }
+                    },
+                    "responses": { "200": { "description": "Clipboard updated" } }
+                }
+            },
+            "/open-url": {
+                "post": {
+                    "summary": "Open an http(s) URL in the default browser",
+                    "requestBody": {
+                        "required": true,
+                        "content": { "application/json": { "schema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"] } } }
+                    },
+                    "responses": { "200": { "description": "URL opened" } }
                 }
             }
         }
@@ -702,6 +766,203 @@ async fn terminal_exec(Json(req): Json<TerminalExecReq>) -> impl IntoResponse {
     }
 }
 
+async fn mouse_drag(Json(req): Json<MouseDragReq>) -> impl IntoResponse {
+    let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+        let btn = match req.button.as_deref() {
+            Some("right") => Button::Right,
+            Some("middle") => Button::Middle,
+            _ => Button::Left,
+        };
+        enigo
+            .move_mouse(req.x1, req.y1, Coordinate::Abs)
+            .map_err(|e| e.to_string())?;
+        enigo.button(btn, Direction::Press).map_err(|e| e.to_string())?;
+        enigo
+            .move_mouse(req.x2, req.y2, Coordinate::Abs)
+            .map_err(|e| e.to_string())?;
+        enigo.button(btn, Direction::Release).map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await;
+
+    match res {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(ActionRes {
+                ok: true,
+                message: "Mouse dragged".into(),
+            }),
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ActionRes {
+                ok: false,
+                message: e,
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ActionRes {
+                ok: false,
+                message: e.to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+async fn screen_info() -> impl IntoResponse {
+    let res = tokio::task::spawn_blocking(|| -> Result<serde_json::Value, String> {
+        let monitors = Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
+        let infos: Vec<serde_json::Value> = monitors
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "name": m.name().unwrap_or_default(),
+                    "width": m.width().unwrap_or(0),
+                    "height": m.height().unwrap_or(0),
+                    "is_primary": m.is_primary().unwrap_or(false),
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({ "monitors": infos, "count": infos.len() }))
+    })
+    .await;
+
+    match res {
+        Ok(Ok(data)) => (StatusCode::OK, Json(data)).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+async fn clipboard_read() -> impl IntoResponse {
+    let res = tokio::task::spawn_blocking(|| -> Result<String, String> {
+        let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        cb.get_text().map_err(|e| e.to_string())
+    })
+    .await;
+
+    match res {
+        Ok(Ok(text)) => (StatusCode::OK, Json(serde_json::json!({ "text": text }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+async fn clipboard_write(Json(req): Json<ClipboardWriteReq>) -> impl IntoResponse {
+    let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        cb.set_text(req.text).map_err(|e| e.to_string())
+    })
+    .await;
+
+    match res {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(ActionRes {
+                ok: true,
+                message: "Clipboard updated".into(),
+            }),
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ActionRes {
+                ok: false,
+                message: e,
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ActionRes {
+                ok: false,
+                message: e.to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+async fn open_url(Json(req): Json<OpenUrlReq>) -> impl IntoResponse {
+    let url = req.url.trim().to_string();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ActionRes {
+                ok: false,
+                message: "URL must start with http:// or https://".into(),
+            }),
+        )
+            .into_response();
+    }
+
+    let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let status = if cfg!(target_os = "windows") {
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", &url])
+                .status()
+        } else if cfg!(target_os = "macos") {
+            std::process::Command::new("open").arg(&url).status()
+        } else {
+            std::process::Command::new("xdg-open").arg(&url).status()
+        };
+        match status {
+            Ok(s) if s.success() => Ok(()),
+            Ok(s) => Err(format!("Failed to open URL (exit {})", s)),
+            Err(e) => Err(e.to_string()),
+        }
+    })
+    .await;
+
+    match res {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(ActionRes {
+                ok: true,
+                message: "URL opened".into(),
+            }),
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ActionRes {
+                ok: false,
+                message: e,
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ActionRes {
+                ok: false,
+                message: e.to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // MCP (Model Context Protocol) — Streamable HTTP
 // Spec: https://modelcontextprotocol.io/specification/2025-03-26/basic/transports
@@ -811,6 +1072,64 @@ fn mcp_tools_list() -> serde_json::Value {
                         "cwd": { "type": "string" }
                     },
                     "required": ["command"]
+                }
+            },
+            {
+                "name": "mouse_drag",
+                "description": "Drag the mouse from (x1, y1) to (x2, y2) holding a button (for drag & drop, text selection, resizing).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "x1": { "type": "integer" },
+                        "y1": { "type": "integer" },
+                        "x2": { "type": "integer" },
+                        "y2": { "type": "integer" },
+                        "button": { "type": "string", "enum": ["left", "right", "middle"] }
+                    },
+                    "required": ["x1", "y1", "x2", "y2"]
+                }
+            },
+            {
+                "name": "get_screen_info",
+                "description": "Get monitor info (name, resolution, primary) to calibrate coordinates.",
+                "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "clipboard_read",
+                "description": "Read the system clipboard text.",
+                "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "clipboard_write",
+                "description": "Write text to the system clipboard.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "text": { "type": "string" }
+                    },
+                    "required": ["text"]
+                }
+            },
+            {
+                "name": "open_url",
+                "description": "Open an http(s) URL in the default browser.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string" }
+                    },
+                    "required": ["url"]
+                }
+            },
+            {
+                "name": "wait",
+                "description": "Wait for a number of milliseconds (max 30000). Useful after opening apps.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "ms": { "type": "integer" }
+                    },
+                    "required": ["ms"]
                 }
             }
         ]
@@ -947,6 +1266,115 @@ async fn call_tool(name: &str, args: serde_json::Value) -> (serde_json::Value, b
                             true,
                         ),
                     }
+                }
+                Err(e) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    true,
+                ),
+            }
+        }
+        "mouse_drag" => {
+            let parsed: Result<MouseDragReq, _> = serde_json::from_value(args);
+            match parsed {
+                Ok(r) => {
+                    let _ = mouse_drag(Json(r)).await;
+                    (serde_json::json!([{ "type": "text", "text": "Mouse dragged" }]), false)
+                }
+                Err(e) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    true,
+                ),
+            }
+        }
+        "get_screen_info" => {
+            let res = tokio::task::spawn_blocking(|| -> Result<serde_json::Value, String> {
+                let monitors = Monitor::all().map_err(|e| e.to_string())?;
+                let infos: Vec<serde_json::Value> = monitors
+                    .iter()
+                    .map(|m| {
+                        serde_json::json!({
+                            "name": m.name().unwrap_or_default(),
+                            "width": m.width().unwrap_or(0),
+                            "height": m.height().unwrap_or(0),
+                            "is_primary": m.is_primary().unwrap_or(false),
+                        })
+                    })
+                    .collect();
+                Ok(serde_json::json!({ "monitors": infos, "count": infos.len() }))
+            })
+            .await;
+            match res {
+                Ok(Ok(v)) => (
+                    serde_json::json!([{ "type": "text", "text": v.to_string() }]),
+                    false,
+                ),
+                Ok(Err(e)) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                    true,
+                ),
+                Err(e) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                    true,
+                ),
+            }
+        }
+        "clipboard_read" => {
+            let res = tokio::task::spawn_blocking(|| -> Result<String, String> {
+                let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+                cb.get_text().map_err(|e| e.to_string())
+            })
+            .await;
+            match res {
+                Ok(Ok(text)) => (
+                    serde_json::json!([{ "type": "text", "text": text }]),
+                    false,
+                ),
+                Ok(Err(e)) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                    true,
+                ),
+                Err(e) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Error: {}", e) }]),
+                    true,
+                ),
+            }
+        }
+        "clipboard_write" => {
+            let parsed: Result<ClipboardWriteReq, _> = serde_json::from_value(args);
+            match parsed {
+                Ok(r) => {
+                    let _ = clipboard_write(Json(r)).await;
+                    (serde_json::json!([{ "type": "text", "text": "Clipboard updated" }]), false)
+                }
+                Err(e) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    true,
+                ),
+            }
+        }
+        "open_url" => {
+            let parsed: Result<OpenUrlReq, _> = serde_json::from_value(args);
+            match parsed {
+                Ok(r) => {
+                    let _ = open_url(Json(r)).await;
+                    (serde_json::json!([{ "type": "text", "text": "URL opened" }]), false)
+                }
+                Err(e) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
+                    true,
+                ),
+            }
+        }
+        "wait" => {
+            let parsed: Result<WaitReq, _> = serde_json::from_value(args);
+            match parsed {
+                Ok(r) => {
+                    let ms = r.ms.min(30000);
+                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                    (
+                        serde_json::json!([{ "type": "text", "text": format!("Waited {}ms", ms) }]),
+                        false,
+                    )
                 }
                 Err(e) => (
                     serde_json::json!([{ "type": "text", "text": format!("Invalid args: {}", e) }]),
@@ -1164,12 +1592,16 @@ pub async fn start_http_server(
             post(mcp_post).get(mcp_sse).delete(mcp_delete),
         )
         .route("/screen", get(get_screen))
+        .route("/screen/info", get(screen_info))
         .route("/mouse/move", post(mouse_move))
         .route("/mouse/click", post(mouse_click))
         .route("/mouse/scroll", post(mouse_scroll))
+        .route("/mouse/drag", post(mouse_drag))
         .route("/keyboard/type", post(keyboard_type))
         .route("/keyboard/key", post(keyboard_key))
         .route("/terminal/exec", post(terminal_exec))
+        .route("/clipboard", get(clipboard_read).post(clipboard_write))
+        .route("/open-url", post(open_url))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(cors)
         .with_state(state);
@@ -1305,7 +1737,7 @@ mod tests {
         .await;
         assert_eq!(notif.status().as_u16(), 202);
 
-        // tools/list -> 7 ferramentas
+        // tools/list -> 13 ferramentas
         let list = post_mcp(
             &client,
             base,
@@ -1313,7 +1745,7 @@ mod tests {
         )
         .await;
         let list_body: serde_json::Value = list.json().await.unwrap();
-        assert_eq!(list_body["result"]["tools"].as_array().unwrap().len(), 7);
+        assert_eq!(list_body["result"]["tools"].as_array().unwrap().len(), 13);
 
         // tools/call desconhecida -> isError true
         let call = post_mcp(
