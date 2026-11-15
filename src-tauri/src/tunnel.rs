@@ -132,20 +132,36 @@ pub async fn start_quick_tunnel(
         .take()
         .ok_or_else(|| "Failed to capture cloudflared stderr".to_string())?;
 
-    let re = Regex::new(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com").unwrap();
-    let mut reader = BufReader::new(stderr).lines();
+    // Drena o stdout em segundo plano para o pipe nunca encher e travar
+    // o processo do cloudflared.
+    if let Some(stdout) = child.stdout.take() {
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout).lines();
+            while let Ok(Some(_line)) = reader.next_line().await {}
+        });
+    }
 
-    let url = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    // Le o stderr em segundo plano: detecta a URL publica e continua
+    // drenando o pipe ate o processo terminar (antes o reader era
+    // descartado e o cloudflared podia bloquear/falhar).
+    let re = Regex::new(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com").unwrap();
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        let mut tx = Some(tx);
         while let Ok(Some(line)) = reader.next_line().await {
             if let Some(m) = re.find(&line) {
-                return Some(m.as_str().to_string());
+                if let Some(t) = tx.take() {
+                    let _ = t.send(m.as_str().to_string());
+                }
             }
         }
-        None
-    })
-    .await
-    .map_err(|_| "Timed out waiting for Cloudflare Tunnel URL".to_string())?
-    .ok_or_else(|| "Cloudflare Tunnel exited before providing a URL".to_string())?;
+    });
+
+    let url = tokio::time::timeout(std::time::Duration::from_secs(45), rx)
+        .await
+        .map_err(|_| "Timed out waiting for Cloudflare Tunnel URL".to_string())?
+        .map_err(|_| "Cloudflare Tunnel exited before providing a URL".to_string())?;
 
     Ok((child, url))
 }

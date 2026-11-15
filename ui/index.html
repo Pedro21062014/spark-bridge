@@ -13,7 +13,7 @@
       <div class="brand">
         <div class="logo">⚡</div>
         <div>
-          <h1>Spark Bridge</h1>
+          <h1>Spark Bridge <span class="version-badge">v0.2.0</span></h1>
           <p class="subtitle">Ponte PC para Agentes de IA &amp; MCP</p>
         </div>
       </div>
@@ -23,11 +23,22 @@
       </div>
     </header>
 
+    <p id="tauri-missing" class="notice hidden">
+      ⚠️ Esta página precisa ser aberta dentro do aplicativo <strong>Spark Bridge</strong> (Tauri).
+      No navegador, apenas a pré-visualização do layout está disponível.
+    </p>
+
     <main class="card main-card">
       <button id="toggle-btn" class="btn-primary">
         <span id="btn-text">Iniciar Conexão</span>
       </button>
       <p id="error-msg" class="error hidden"></p>
+
+      <div class="row-between">
+        <button id="test-btn" class="btn-secondary" disabled>🔍 Testar conexão MCP</button>
+        <span id="test-hint" class="hint">Verifica o handshake MCP local</span>
+      </div>
+      <div id="test-result" class="result-box hidden"></div>
 
       <div class="field-group highlight-group">
         <label>URL Completa para MCP / Agente (Link + Token)</label>
@@ -35,9 +46,18 @@
           <input id="mcp-url" type="text" readonly placeholder="Clique em Iniciar para gerar o link MCP..." />
           <button class="btn-copy btn-copy-accent" data-target="mcp-url">Copiar</button>
         </div>
+        <small class="hint">Cole esta URL no seu cliente MCP (Claude, Cursor, VS Code, Gemini...).</small>
       </div>
 
       <div class="divider"></div>
+
+      <div class="field-group">
+        <label>Header de Autenticação (Authorization)</label>
+        <div class="copy-row">
+          <input id="auth-header" type="text" readonly placeholder="Bearer sb_..." />
+          <button class="btn-copy" data-target="auth-header">Copiar</button>
+        </div>
+      </div>
 
       <div class="field-group">
         <label>Link Público (Cloudflare Tunnel)</label>
@@ -48,13 +68,41 @@
       </div>
 
       <div class="field-group">
-        <label>Token de Segurança (Bearer)</label>
+        <label>URL Local (neste PC)</label>
         <div class="copy-row">
-          <input id="api-token" type="text" readonly />
+          <input id="local-url" type="text" readonly value="http://127.0.0.1:4891/mcp" />
+          <button class="btn-copy" data-target="local-url">Copiar</button>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label>Token de Segurança</label>
+        <div class="copy-row">
+          <input id="api-token" type="password" readonly autocomplete="off" />
+          <button id="token-eye" class="btn-copy" title="Mostrar / ocultar token">👁️</button>
           <button class="btn-copy" data-target="api-token">Copiar</button>
+          <button id="regenerate-btn" class="btn-copy" title="Gerar novo token">↻ Novo</button>
         </div>
       </div>
     </main>
+
+    <section class="card config-card">
+      <div class="row-between">
+        <h2>Configuração do cliente MCP</h2>
+        <select id="client-select" class="select">
+          <option value="claude">Claude Desktop</option>
+          <option value="cursor">Cursor</option>
+          <option value="vscode">VS Code</option>
+          <option value="gemini">Gemini CLI</option>
+          <option value="generic">Genérico (URL + Header)</option>
+        </select>
+      </div>
+      <textarea id="config-output" class="config-output" readonly rows="8" spellcheck="false"></textarea>
+      <div class="row-between">
+        <small id="config-hint" class="hint"></small>
+        <button id="copy-config-btn" class="btn-copy">Copiar configuração</button>
+      </div>
+    </section>
 
     <section class="card settings">
       <h2>Configurações</h2>
@@ -78,13 +126,42 @@
     <section class="card info">
       <h2>Endpoints disponíveis</h2>
       <div class="endpoints-grid">
+        <div class="ep"><code>POST /mcp</code><span>MCP Streamable HTTP</span></div>
+        <div class="ep"><code>GET /mcp</code><span>Stream SSE do MCP</span></div>
         <div class="ep"><code>GET /screen</code><span>Ver tela</span></div>
+        <div class="ep"><code>POST /mouse/move</code><span>Mover mouse</span></div>
         <div class="ep"><code>POST /mouse/click</code><span>Clicar</span></div>
+        <div class="ep"><code>POST /mouse/scroll</code><span>Rolar</span></div>
         <div class="ep"><code>POST /keyboard/type</code><span>Digitar</span></div>
+        <div class="ep"><code>POST /keyboard/key</code><span>Tecla / atalho</span></div>
         <div class="ep"><code>POST /terminal/exec</code><span>Terminal</span></div>
+        <div class="ep"><code>GET /health</code><span>Status do servidor</span></div>
       </div>
     </section>
+
+    <details class="card help">
+      <summary>❓ Como conectar e resolver erros</summary>
+      <ol>
+        <li>Clique em <strong>Iniciar Conexão</strong> e aguarde o status ficar <strong>Online</strong>.</li>
+        <li>Copie a <strong>URL Completa para MCP</strong> (termina em <code>/mcp?token=...</code>).</li>
+        <li>Na aba <strong>Configuração do cliente MCP</strong>, escolha seu cliente e copie o JSON.</li>
+        <li>Cole a configuração no cliente e reconecte.</li>
+      </ol>
+      <p><strong>Erro “Não foi possível acessar o servidor MCP. Revise o URL”?</strong></p>
+      <ul>
+        <li>Use a URL com <code>/mcp</code> (não apenas <code>/</code>) e com o token atual.</li>
+        <li>Se o cliente permite headers, use <code>Authorization: Bearer &lt;token&gt;</code> e a URL sem <code>?token=</code>.</li>
+        <li>Confira se o Spark Bridge está <strong>Online</strong> e clique em <strong>Testar conexão MCP</strong>.</li>
+        <li>URLs do Cloudflare Quick Tunnel mudam a cada início — copie a URL nova após reconectar.</li>
+      </ul>
+    </details>
+
+    <footer class="footer">
+      <span>Spark Bridge v0.2.0 · Tauri + Rust · MCP Streamable HTTP</span>
+    </footer>
   </div>
+
+  <div id="toast" class="toast hidden"></div>
 
   <script src="app.js"></script>
 </body>

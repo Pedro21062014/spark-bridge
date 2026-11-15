@@ -2,8 +2,14 @@ name: Build & Release Spark Bridge
 
 on:
   push:
-    branches: [main]
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag para a release (ex: v0.2.0). Deixe vazio para usar a tag/ref selecionada."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -63,9 +69,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v0.1.2
-          releaseName: "Spark Bridge v0.1.2"
-          releaseBody: "Download Spark Bridge for Linux (.deb, .AppImage), Windows (.exe), and macOS (.dmg)."
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: "Spark Bridge ${{ inputs.tag || github.ref_name }}"
+          releaseBody: |
+            ## ⚡ Spark Bridge ${{ inputs.tag || github.ref_name }}
+
+            Ponte PC para agentes de IA com MCP Streamable HTTP (endpoint `/mcp` com SSE),
+            túnel público gratuito via Cloudflare e controle de tela, mouse, teclado e terminal.
+
+            ### 📥 Download
+            - **Linux:** `.deb` ou `.AppImage`
+            - **Windows:** `.exe` (ou `.msi`)
+            - **macOS:** `.dmg`
+
+            ### 🚀 Como usar
+            1. Abra o Spark Bridge e clique em **Iniciar Conexão**.
+            2. Copie a **URL Completa para MCP** (termina em `/mcp?token=...`) ou a configuração do seu cliente.
+            3. Cole no cliente MCP (Claude Desktop, Cursor, VS Code, Gemini CLI) e conecte.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
