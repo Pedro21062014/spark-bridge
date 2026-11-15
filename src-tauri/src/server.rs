@@ -9,7 +9,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use enigo::{Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
-use image::{ImageBuffer, Rgba};
+use image::{DynamicImage, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::process::Stdio;
@@ -203,7 +203,7 @@ async fn openapi_spec() -> Json<serde_json::Value> {
         "paths": {
             "/screen": {
                 "get": {
-                    "summary": "Capture primary screen as base64 PNG",
+                    "summary": "Capture primary screen as base64 JPEG (downscaled to max 1920px)",
                     "responses": { "200": { "description": "Screenshot captured" } }
                 }
             },
@@ -271,41 +271,130 @@ async fn openapi_spec() -> Json<serde_json::Value> {
     }))
 }
 
+/// Verifica se uma imagem RGB esta "em branco" (toda preta).
+/// Capturas falhas (Wayland sem permissao, primeiro frame do PipeWire,
+/// tela bloqueada/desligada) costumam retornar frames pretos — nesse
+/// caso tentamos de novo em vez de devolver uma imagem vazia para a IA.
+fn is_blank_rgb(buf: &[u8], width: u32, height: u32) -> bool {
+    let w = width as usize;
+    let h = height as usize;
+    if w == 0 || h == 0 || buf.len() < w * h * 3 {
+        return true;
+    }
+    let step_x = (w / 64).max(1);
+    let step_y = (h / 64).max(1);
+    let mut sampled = 0usize;
+    let mut y = 0;
+    while y < h {
+        let mut x = 0;
+        while x < w {
+            let i = (y * w + x) * 3;
+            if i + 2 < buf.len() {
+                sampled += 1;
+                if buf[i] > 10 || buf[i + 1] > 10 || buf[i + 2] > 10 {
+                    return false;
+                }
+            }
+            x += step_x;
+        }
+        y += step_y;
+    }
+    sampled > 0
+}
+
+/// Reduz a imagem para no maximo `max_dim` no maior lado (mantem proporcao).
+/// Capturas em resolucao total geram PNGs de varios MB em base64, que muitos
+/// clientes MCP descartam/truncam — a IA entao relata a captura como "vazia".
+fn downscale_to_max(img: DynamicImage, max_dim: u32) -> DynamicImage {
+    let (w, h) = (img.width(), img.height());
+    let m = w.max(h);
+    if m <= max_dim || m == 0 {
+        return img;
+    }
+    let ratio = max_dim as f32 / m as f32;
+    let nw = ((w as f32 * ratio) as u32).max(1);
+    let nh = ((h as f32 * ratio) as u32).max(1);
+    img.resize_exact(nw, nh, image::imageops::FilterType::Triangle)
+}
+
+/// Captura a tela principal e devolve (bytes JPEG, largura, altura).
+/// Tenta ate 3 vezes, descartando frames em branco/0x0, e sempre devolve
+/// JPEG reduzido (max. 1920px) para caber nos limites dos clientes MCP.
+fn capture_primary_screen_blocking() -> Result<(Vec<u8>, u32, u32), String> {
+    const MAX_DIM: u32 = 1920;
+
+    let mut monitors =
+        Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
+    if monitors.is_empty() {
+        return Err("Nenhum monitor encontrado".to_string());
+    }
+    let primary_idx = monitors
+        .iter()
+        .position(|m| m.is_primary().unwrap_or(false))
+        .unwrap_or(0);
+    let monitor = monitors.remove(primary_idx);
+
+    let mut last_err = String::new();
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        match monitor.capture_image() {
+            Ok(img) => {
+                let (w, h) = (img.width(), img.height());
+                if w == 0 || h == 0 {
+                    last_err = "imagem com dimensao 0x0".to_string();
+                    continue;
+                }
+                let rgba: ImageBuffer<Rgba<u8>, Vec<u8>> =
+                    match ImageBuffer::from_raw(w, h, img.into_raw()) {
+                        Some(b) => b,
+                        None => {
+                            last_err = "Failed to build image buffer".to_string();
+                            continue;
+                        }
+                    };
+                let rgb = DynamicImage::ImageRgba8(rgba).to_rgb8();
+                if is_blank_rgb(rgb.as_raw(), w, h) {
+                    last_err = "frame em branco/preto".to_string();
+                    continue;
+                }
+                let small = downscale_to_max(DynamicImage::ImageRgb8(rgb), MAX_DIM);
+                let (sw, sh) = (small.width(), small.height());
+                let mut jpeg_bytes: Vec<u8> = Vec::new();
+                let mut cursor = Cursor::new(&mut jpeg_bytes);
+                if let Err(e) = small.write_to(&mut cursor, image::ImageFormat::Jpeg) {
+                    last_err = format!("Failed to encode JPEG: {}", e);
+                    continue;
+                }
+                return Ok((jpeg_bytes, sw, sh));
+            }
+            Err(e) => {
+                last_err = e.to_string();
+            }
+        }
+    }
+
+    Err(format!(
+        "Falha ao capturar a tela apos 3 tentativas ({}). Verifique se a tela esta ligada/desbloqueada e, no Linux com Wayland, se a permissao de captura de tela foi concedida ao Spark Bridge.",
+        last_err
+    ))
+}
+
 async fn get_screen() -> impl IntoResponse {
-    let res = tokio::task::spawn_blocking(|| -> Result<ScreenResponse, String> {
-        let monitors = Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
-        let monitor = monitors
-            .into_iter()
-            .find(|m| m.is_primary().unwrap_or(false))
-            .or_else(|| Monitor::all().ok()?.into_iter().next())
-            .ok_or_else(|| "No monitor found".to_string())?;
-
-        let img = monitor
-            .capture_image()
-            .map_err(|e| format!("Failed to capture screen: {}", e))?;
-
-        let width = img.width();
-        let height = img.height();
-        let rgba: ImageBuffer<Rgba<u8>, Vec<u8>> =
-            ImageBuffer::from_raw(width, height, img.into_raw())
-                .ok_or_else(|| "Failed to build image buffer".to_string())?;
-
-        let mut png_bytes: Vec<u8> = Vec::new();
-        let mut cursor = Cursor::new(&mut png_bytes);
-        rgba.write_to(&mut cursor, image::ImageFormat::Png)
-            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
-
-        Ok(ScreenResponse {
-            width,
-            height,
-            format: "png",
-            image_base64: BASE64.encode(&png_bytes),
-        })
-    })
-    .await;
+    let res = tokio::task::spawn_blocking(capture_primary_screen_blocking).await;
 
     match res {
-        Ok(Ok(data)) => (StatusCode::OK, Json(serde_json::to_value(data).unwrap())).into_response(),
+        Ok(Ok((bytes, width, height))) => (
+            StatusCode::OK,
+            Json(ScreenResponse {
+                width,
+                height,
+                format: "jpeg",
+                image_base64: BASE64.encode(&bytes),
+            }),
+        )
+            .into_response(),
         Ok(Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e })),
@@ -650,7 +739,7 @@ fn mcp_tools_list() -> serde_json::Value {
         "tools": [
             {
                 "name": "screen_capture",
-                "description": "Capture the user's primary screen as a PNG image.",
+                "description": "Capture the user's primary screen as a JPEG image (downscaled to max 1920px).",
                 "inputSchema": { "type": "object", "properties": {} }
             },
             {
@@ -731,31 +820,17 @@ fn mcp_tools_list() -> serde_json::Value {
 async fn call_tool(name: &str, args: serde_json::Value) -> (serde_json::Value, bool) {
     match name {
         "screen_capture" => {
-            let res = tokio::task::spawn_blocking(|| -> Result<String, String> {
-                let monitors = Monitor::all().map_err(|e| e.to_string())?;
-                let monitor = monitors
-                    .into_iter()
-                    .find(|m| m.is_primary().unwrap_or(false))
-                    .or_else(|| Monitor::all().ok()?.into_iter().next())
-                    .ok_or_else(|| "No monitor found".to_string())?;
-                let img = monitor.capture_image().map_err(|e| e.to_string())?;
-                let rgba: ImageBuffer<Rgba<u8>, Vec<u8>> =
-                    ImageBuffer::from_raw(img.width(), img.height(), img.into_raw())
-                        .ok_or_else(|| "Failed to build image buffer".to_string())?;
-                let mut png_bytes = Vec::new();
-                let mut cursor = Cursor::new(&mut png_bytes);
-                rgba.write_to(&mut cursor, image::ImageFormat::Png)
-                    .map_err(|e| e.to_string())?;
-                Ok(BASE64.encode(&png_bytes))
-            })
-            .await;
+            let res = tokio::task::spawn_blocking(capture_primary_screen_blocking).await;
             match res {
-                Ok(Ok(b64)) => (
-                    serde_json::json!([{
-                        "type": "image",
-                        "data": b64,
-                        "mimeType": "image/png"
-                    }]),
+                Ok(Ok((bytes, w, h))) => (
+                    serde_json::json!([
+                        { "type": "text", "text": format!("Screenshot {}x{} (JPEG)", w, h) },
+                        {
+                            "type": "image",
+                            "data": BASE64.encode(&bytes),
+                            "mimeType": "image/jpeg"
+                        }
+                    ]),
                     false,
                 ),
                 Ok(Err(e)) => (
@@ -1113,7 +1188,28 @@ pub async fn start_http_server(
 
 #[cfg(test)]
 mod tests {
-    use super::start_http_server;
+    use super::{downscale_to_max, is_blank_rgb, start_http_server};
+    use image::DynamicImage;
+
+    #[test]
+    fn blank_detection() {
+        let black = vec![0u8; 64 * 64 * 3];
+        assert!(is_blank_rgb(&black, 64, 64));
+        let mut img = vec![0u8; 64 * 64 * 3];
+        img[100] = 255; // um pixel claro ja basta para nao ser "vazia"
+        assert!(!is_blank_rgb(&img, 64, 64));
+        assert!(is_blank_rgb(&[], 0, 0));
+    }
+
+    #[test]
+    fn downscale_dims() {
+        let big = DynamicImage::new_rgb8(3840, 2160);
+        let small = downscale_to_max(big, 1920);
+        assert_eq!((small.width(), small.height()), (1920, 1080));
+        let small_img = DynamicImage::new_rgb8(800, 600);
+        let kept = downscale_to_max(small_img, 1920);
+        assert_eq!((kept.width(), kept.height()), (800, 600));
+    }
 
     async fn post_mcp(
         client: &reqwest::Client,
