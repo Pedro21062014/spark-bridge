@@ -293,8 +293,19 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
+            // Icone dedicado da bandeja: logo com fundo escuro arredondado,
+            // legivel mesmo em tamanhos pequenos (16-32px).
+            let tray_icon = match image::load_from_memory(include_bytes!("../icons/tray.png")) {
+                Ok(img) => {
+                    let rgba = img.to_rgba8();
+                    let (w, h) = (rgba.width(), rgba.height());
+                    tauri::image::Image::new_owned(rgba.into_raw(), w, h)
+                }
+                Err(_) => app.default_window_icon().unwrap().clone(),
+            };
+
             let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tray_icon)
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {

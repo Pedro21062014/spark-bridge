@@ -203,7 +203,7 @@ async fn openapi_spec() -> Json<serde_json::Value> {
         "paths": {
             "/screen": {
                 "get": {
-                    "summary": "Capture primary screen as base64 JPEG (downscaled to max 1920px)",
+                    "summary": "Capture primary screen as base64 JPEG (downscaled to max 1600px)",
                     "responses": { "200": { "description": "Screenshot captured" } }
                 }
             },
@@ -319,9 +319,9 @@ fn downscale_to_max(img: DynamicImage, max_dim: u32) -> DynamicImage {
 
 /// Captura a tela principal e devolve (bytes JPEG, largura, altura).
 /// Tenta ate 3 vezes, descartando frames em branco/0x0, e sempre devolve
-/// JPEG reduzido (max. 1920px) para caber nos limites dos clientes MCP.
+/// JPEG reduzido (max. 1600px) para caber nos limites dos clientes MCP.
 fn capture_primary_screen_blocking() -> Result<(Vec<u8>, u32, u32), String> {
-    const MAX_DIM: u32 = 1920;
+    const MAX_DIM: u32 = 1600;
 
     let mut monitors =
         Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
@@ -739,7 +739,7 @@ fn mcp_tools_list() -> serde_json::Value {
         "tools": [
             {
                 "name": "screen_capture",
-                "description": "Capture the user's primary screen as a JPEG image (downscaled to max 1920px).",
+                "description": "Capture the user's primary screen as a JPEG image (downscaled to max 1600px).",
                 "inputSchema": { "type": "object", "properties": {} }
             },
             {
@@ -823,13 +823,16 @@ async fn call_tool(name: &str, args: serde_json::Value) -> (serde_json::Value, b
             let res = tokio::task::spawn_blocking(capture_primary_screen_blocking).await;
             match res {
                 Ok(Ok((bytes, w, h))) => (
+                    // A imagem vem PRIMEIRO: alguns clientes MCP leem apenas o
+                    // primeiro bloco de conteudo ou truncam o resultado — assim
+                    // a captura chega ao modelo em vez de so a confirmacao textual.
                     serde_json::json!([
-                        { "type": "text", "text": format!("Screenshot {}x{} (JPEG)", w, h) },
                         {
                             "type": "image",
                             "data": BASE64.encode(&bytes),
                             "mimeType": "image/jpeg"
-                        }
+                        },
+                        { "type": "text", "text": format!("Screenshot {}x{} (JPEG)", w, h) }
                     ]),
                     false,
                 ),

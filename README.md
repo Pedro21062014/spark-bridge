@@ -50,7 +50,7 @@ Tudo isso em um aplicativo desktop leve, com ícone na bandeja do sistema e opç
 | 🖼️ **Logo do servidor** | `GET /logo.png` (e `/icon.png`) serve o logo oficial embutido no binário, para clientes MCP/agentes que solicitem o ícone |
 | 🔍 **Teste de conexão integrado** | Botão **Testar conexão MCP** faz o handshake (`initialize` + `tools/list`) e mostra latência, versão e quantidade de ferramentas |
 | ⚙️ **Config pronta por cliente** | Gera o JSON para Claude Desktop, Cursor, VS Code e Gemini CLI com um clique |
-| 🖥️ **Controle de tela** | Captura a tela em JPEG (base64, máx. 1920px, com retry anti-frame-vazio) |
+| 🖥️ **Controle de tela** | Captura a tela em JPEG (base64, máx. 1600px, com retry anti-frame-vazio) |
 | 🖱️ **Controle de mouse** | Mover, clicar (esquerdo/direito/meio, duplo) e rolar |
 | ⌨️ **Controle de teclado** | Digitar texto e pressionar teclas/atalhos (Ctrl, Alt, Shift, Meta) |
 | 💻 **Terminal** | Executar comandos no terminal do PC |
@@ -156,7 +156,7 @@ O servidor expõe **7 ferramentas** via `tools/list` / `tools/call`:
 
 | Ferramenta | Parâmetros | Descrição |
 |---|---|---|
-| `screen_capture` | — | Captura a tela principal em JPEG (base64, máx. 1920px; retorna também um bloco de texto com as dimensões) |
+| `screen_capture` | — | Captura a tela principal em JPEG (base64, máx. 1600px; retorna também um bloco de texto com as dimensões) |
 | `mouse_move` | `x`, `y` | Move o cursor para as coordenadas (x, y) |
 | `mouse_click` | `x?`, `y?`, `button?` (`left`/`right`/`middle`), `double?` | Clica (opcionalmente em x, y) |
 | `mouse_scroll` | `delta_x?`, `delta_y?` | Rola a roda do mouse |
@@ -181,7 +181,7 @@ Além do MCP, o servidor expõe endpoints REST (todos exigem token, exceto os p�
 | `POST` | `/mcp` | ✅ | MCP Streamable HTTP (JSON-RPC 2.0) |
 | `GET` | `/mcp` | ✅ | Stream SSE do MCP (server → client) |
 | `DELETE` | `/mcp` | ✅ | Encerra a sessão MCP |
-| `GET` | `/screen` | ✅ | Captura de tela em JPEG (base64, máx. 1920px) |
+| `GET` | `/screen` | ✅ | Captura de tela em JPEG (base64, máx. 1600px) |
 | `POST` | `/mouse/move` | ✅ | `{"x": 100, "y": 200}` |
 | `POST` | `/mouse/click` | ✅ | `{"x": 100, "y": 200, "button": "left", "double": false}` |
 | `POST` | `/mouse/scroll` | ✅ | `{"delta_y": -3}` |
@@ -253,11 +253,13 @@ No Linux, a captura usa PipeWire/X11. Em sessões Wayland restritas, pode ser ne
 
 Isso acontece quando o cliente MCP descarta a imagem ou quando o frame capturado vem preto. O Spark Bridge já mitiga isso:
 
-- A captura é devolvida em **JPEG reduzido (máx. 1920px)** em vez de PNG em resolução total — PNGs de vários MB costumam ser truncados/descartados pelos clientes;
+- A captura é devolvida em **JPEG reduzido (máx. 1600px)** em vez de PNG em resolução total — PNGs de vários MB costumam ser truncados/descartados pelos clientes;
 - Frames **pretos/vazios são detectados e tentados novamente** (até 3x) antes de responder;
 - Se a captura falhar de verdade, a ferramenta retorna um **erro explicativo** (tela bloqueada/desligada, permissão Wayland etc.) em vez de uma imagem vazia.
 
 Se ainda assim a IA relatar captura vazia, verifique: tela ligada e desbloqueada, permissão de captura de tela concedida (Linux/Wayland) e se o cliente MCP suporta conteúdo de imagem (`image/jpeg`).
+
+> **A IA recebe só a confirmação (“Screenshot 1600x...”) e não a imagem?** Isso indica que o **cliente MCP não repassa imagens ao modelo** (alguns clientes/agentes web são só-texto). O servidor já envia a imagem como **primeiro bloco** do resultado para maximizar compatibilidade. Para a IA *analisar* a tela, use um cliente com suporte a imagens em resultados MCP — ex.: **Claude Desktop**, **VS Code (Copilot)**, **Cursor** ou **Gemini CLI**.
 
 ---
 
