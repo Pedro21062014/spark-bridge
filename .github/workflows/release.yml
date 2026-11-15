@@ -63,8 +63,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v0.1.0
-          releaseName: "Spark Bridge v0.1.0"
+          tagName: v0.1.1
+          releaseName: "Spark Bridge v0.1.1"
           releaseBody: "Download Spark Bridge for Linux (.deb, .AppImage), Windows (.exe), and macOS (.dmg)."
           releaseDraft: false
           prerelease: false
