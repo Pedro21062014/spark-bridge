@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark Bridge</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="brand">
+        <div class="logo">⚡</div>
+        <div>
+          <h1>Spark Bridge</h1>
+          <p class="subtitle">Ponte leve para agentes de IA (Tela, Mouse, Teclado & Terminal)</p>
+        </div>
+      </div>
+      <span id="status-badge" class="badge offline">Desconectado</span>
+    </header>
+
+    <main class="card">
+      <button id="toggle-btn" class="btn-primary">
+        <span id="btn-text">Iniciar</span>
+      </button>
+      <p id="error-msg" class="error hidden"></p>
+
+      <div class="field-group">
+        <label>Link Público Grátis (Cloudflare Tunnel)</label>
+        <div class="copy-row">
+          <input id="public-url" type="text" readonly placeholder="Clique em Iniciar para gerar o link..." />
+          <button class="btn-copy" data-target="public-url">Copiar</button>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label>Token de Segurança (Bearer)</label>
+        <div class="copy-row">
+          <input id="api-token" type="text" readonly />
+          <button class="btn-copy" data-target="api-token">Copiar</button>
+        </div>
+      </div>
+    </main>
+
+    <section class="card settings">
+      <h2>Configurações</h2>
+      <label class="toggle-row">
+        <div>
+          <strong>Executar em segundo plano</strong>
+          <small>Minimiza para a bandeja do sistema ao fechar a janela</small>
+        </div>
+        <input id="bg-toggle" type="checkbox" checked />
+      </label>
+
+      <label class="toggle-row">
+        <div>
+          <strong>Iniciar com o sistema</strong>
+          <small>Abre automaticamente quando o PC ligar</small>
+        </div>
+        <input id="autostart-toggle" type="checkbox" />
+      </label>
+    </section>
+
+    <section class="card info">
+      <h2>Como conectar o Gemini Spark / Agente</h2>
+      <p>Use o <strong>Link Público</strong> + header <code>Authorization: Bearer &lt;TOKEN&gt;</code>.</p>
+      <ul>
+        <li><code>GET /screen</code> — Captura a tela (PNG base64)</li>
+        <li><code>POST /mouse/click</code> — Clica na tela (x, y)</li>
+        <li><code>POST /keyboard/type</code> — Digita texto</li>
+        <li><code>POST /terminal/exec</code> — Executa comandos no terminal</li>
+        <li><code>GET /openapi.json</code> — Especificação OpenAPI para agentes</li>
+      </ul>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
