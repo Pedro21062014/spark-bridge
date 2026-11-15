@@ -1,8 +1,10 @@
+mod ngrok;
 mod server;
 mod tunnel;
 
 use rand::Rng;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -19,6 +21,9 @@ struct BridgeInner {
     local_url: String,
     token: Arc<RwLock<String>>,
     background_mode: bool,
+    tunnel_provider: String,
+    ngrok_authtoken: String,
+    ngrok_domain: String,
     server_shutdown: Option<oneshot::Sender<()>>,
     tunnel_child: Option<Child>,
 }
@@ -32,6 +37,9 @@ pub struct BridgeStatus {
     pub local_url: String,
     pub token: String,
     pub background_mode: bool,
+    pub tunnel_provider: String,
+    pub ngrok_authtoken: String,
+    pub ngrok_domain: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -61,7 +69,50 @@ async fn snapshot(inner: &BridgeInner) -> BridgeStatus {
         local_url: inner.local_url.clone(),
         token: inner.token.read().await.clone(),
         background_mode: inner.background_mode,
+        tunnel_provider: inner.tunnel_provider.clone(),
+        ngrok_authtoken: inner.ngrok_authtoken.clone(),
+        ngrok_domain: inner.ngrok_domain.clone(),
     }
+}
+
+/// Configuracao do tunel persistida em disco (app data dir).
+#[derive(Serialize, Deserialize, Clone)]
+struct TunnelConfigFile {
+    provider: String,
+    authtoken: String,
+    domain: String,
+}
+
+fn tunnel_config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|d| d.join("tunnel_config.json"))
+        .map_err(|e| format!("Failed to get app data dir: {}", e))
+}
+
+fn load_tunnel_config(app: &AppHandle) -> Option<TunnelConfigFile> {
+    let path = tunnel_config_path(app).ok()?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn save_tunnel_config(app: &AppHandle, cfg: &TunnelConfigFile) -> Result<(), String> {
+    let path = tunnel_config_path(app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let raw = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
+    std::fs::write(&path, raw).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o600);
+            let _ = std::fs::set_permissions(&path, perms);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -78,6 +129,33 @@ async fn set_background_mode(
     let mut inner = state.0.lock().await;
     inner.background_mode = enabled;
     Ok(inner.background_mode)
+}
+
+#[tauri::command]
+async fn set_tunnel_config(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider: String,
+    authtoken: String,
+    domain: String,
+) -> Result<BridgeStatus, String> {
+    let provider = if provider == "ngrok" {
+        "ngrok".to_string()
+    } else {
+        "cloudflare".to_string()
+    };
+    let cfg = TunnelConfigFile {
+        provider: provider.clone(),
+        authtoken: authtoken.trim().to_string(),
+        domain: domain.trim().to_string(),
+    };
+    save_tunnel_config(&app, &cfg)?;
+
+    let mut inner = state.0.lock().await;
+    inner.tunnel_provider = cfg.provider;
+    inner.ngrok_authtoken = cfg.authtoken;
+    inner.ngrok_domain = cfg.domain;
+    Ok(snapshot(&inner).await)
 }
 
 #[tauri::command]
@@ -216,12 +294,17 @@ async fn start_bridge(
     state: State<'_, AppState>,
 ) -> Result<BridgeStatus, String> {
     let port: u16 = 4891;
-    let token_arc = {
+    let (token_arc, provider, ngrok_authtoken, ngrok_domain) = {
         let inner = state.0.lock().await;
         if inner.running {
             return Ok(snapshot(&inner).await);
         }
-        inner.token.clone()
+        (
+            inner.token.clone(),
+            inner.tunnel_provider.clone(),
+            inner.ngrok_authtoken.clone(),
+            inner.ngrok_domain.clone(),
+        )
     };
 
     let (tx, rx) = oneshot::channel::<()>();
@@ -236,12 +319,41 @@ async fn start_bridge(
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
-    let bin_path = tunnel::ensure_cloudflared(&app_data_dir).await?;
-    let (child, public_url) = match tunnel::start_quick_tunnel(&bin_path, port).await {
-        Ok(res) => res,
-        Err(e) => {
+    let (child, public_url) = if provider == "ngrok" {
+        if ngrok_authtoken.trim().is_empty() {
             let _ = tx.send(());
-            return Err(e);
+            return Err(
+                "Authtoken do ngrok nao configurado. Cole seu authtoken (dashboard.ngrok.com) na secao Tunel e clique em Salvar.".into(),
+            );
+        }
+        let bin_path = match ngrok::ensure_ngrok(&app_data_dir).await {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tx.send(());
+                return Err(e);
+            }
+        };
+        match ngrok::start_ngrok_tunnel(&bin_path, port, &ngrok_authtoken, &ngrok_domain).await {
+            Ok(res) => res,
+            Err(e) => {
+                let _ = tx.send(());
+                return Err(e);
+            }
+        }
+    } else {
+        let bin_path = match tunnel::ensure_cloudflared(&app_data_dir).await {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tx.send(());
+                return Err(e);
+            }
+        };
+        match tunnel::start_quick_tunnel(&bin_path, port).await {
+            Ok(res) => res,
+            Err(e) => {
+                let _ = tx.send(());
+                return Err(e);
+            }
         }
     };
 
@@ -278,6 +390,9 @@ pub fn run() {
         local_url: "http://127.0.0.1:4891".to_string(),
         token: Arc::new(RwLock::new(generate_token())),
         background_mode: true,
+        tunnel_provider: "cloudflare".to_string(),
+        ngrok_authtoken: String::new(),
+        ngrok_domain: String::new(),
         server_shutdown: None,
         tunnel_child: None,
     })));
@@ -289,6 +404,17 @@ pub fn run() {
         ))
         .manage(initial_state)
         .setup(|app| {
+            // Restaura a configuracao do tunel salva (provedor/ngrok).
+            if let Some(cfg) = load_tunnel_config(app.handle()) {
+                let state = app.state::<AppState>();
+                tauri::async_runtime::block_on(async {
+                    let mut inner = state.0.lock().await;
+                    inner.tunnel_provider = cfg.provider;
+                    inner.ngrok_authtoken = cfg.authtoken;
+                    inner.ngrok_domain = cfg.domain;
+                });
+            }
+
             let show_i = MenuItem::with_id(app, "show", "Mostrar Janela", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
@@ -338,6 +464,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_status,
             set_background_mode,
+            set_tunnel_config,
             regenerate_token,
             test_connection,
             get_autostart,

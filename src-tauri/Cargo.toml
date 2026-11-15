@@ -1,6 +1,6 @@
 [package]
 name = "spark-bridge"
-version = "0.2.3"
+version = "0.3.0"
 description = "Lightweight PC bridge for AI agents (screen, input, terminal) with free public tunnel"
 authors = ["Spark Bridge"]
 edition = "2021"
@@ -24,6 +24,7 @@ enigo = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 rand = "0.8"
 regex = "1"
+zip = "2"
 
 [profile.release]
 panic = "abort"

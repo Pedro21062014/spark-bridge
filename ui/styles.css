@@ -351,6 +351,12 @@ h1 {
   border-color: rgba(56, 189, 248, 0.5);
 }
 
+.ngrok-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .config-output {
   width: 100%;
   background: rgba(9, 13, 22, 0.7);

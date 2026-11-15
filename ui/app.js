@@ -18,6 +18,13 @@ const clientSelect = document.getElementById("client-select");
 const configOutput = document.getElementById("config-output");
 const configHint = document.getElementById("config-hint");
 const copyConfigBtn = document.getElementById("copy-config-btn");
+const providerSelect = document.getElementById("provider-select");
+const providerHint = document.getElementById("provider-hint");
+const ngrokFields = document.getElementById("ngrok-fields");
+const ngrokToken = document.getElementById("ngrok-token");
+const ngrokDomain = document.getElementById("ngrok-domain");
+const ngrokEye = document.getElementById("ngrok-eye");
+const saveTunnelBtn = document.getElementById("save-tunnel-btn");
 const bgToggle = document.getElementById("bg-toggle");
 const autostartToggle = document.getElementById("autostart-toggle");
 const errorMsg = document.getElementById("error-msg");
@@ -131,12 +138,30 @@ function refreshConfig() {
   configHint.textContent = CLIENT_HINTS[clientSelect.value] || "";
 }
 
+function refreshProviderUI() {
+  const isNgrok = providerSelect.value === "ngrok";
+  ngrokFields.classList.toggle("hidden", !isNgrok);
+  providerHint.textContent = isNgrok
+    ? "ngrok: URL fixa com seu domínio estático (requer authtoken)."
+    : "Cloudflare Quick Tunnel: sem conta, URL muda a cada início.";
+}
+
 function updateUI(status) {
   currentStatus = status;
   isRunning = status.running;
   apiTokenInput.value = status.token || "";
   bgToggle.checked = status.background_mode;
   testBtn.disabled = !status.running;
+
+  // Config do tunel (nao sobrescreve enquanto o usuario digita).
+  providerSelect.value = status.tunnel_provider || "cloudflare";
+  if (document.activeElement !== ngrokToken) {
+    ngrokToken.value = status.ngrok_authtoken || "";
+  }
+  if (document.activeElement !== ngrokDomain) {
+    ngrokDomain.value = status.ngrok_domain || "";
+  }
+  refreshProviderUI();
 
   if (status.running) {
     statusText.textContent = "Online";
@@ -257,6 +282,33 @@ tokenEyeBtn.addEventListener("click", () => {
 });
 
 clientSelect.addEventListener("change", refreshConfig);
+
+async function saveTunnelConfig() {
+  try {
+    const status = await invoke("set_tunnel_config", {
+      provider: providerSelect.value,
+      authtoken: ngrokToken.value,
+      domain: ngrokDomain.value,
+    });
+    updateUI(status);
+    toast("Configuração do túnel salva!");
+  } catch (err) {
+    errorMsg.textContent = "Erro ao salvar túnel: " + err;
+    errorMsg.classList.remove("hidden");
+  }
+}
+
+providerSelect.addEventListener("change", () => {
+  refreshProviderUI();
+  saveTunnelConfig();
+});
+
+saveTunnelBtn.addEventListener("click", saveTunnelConfig);
+
+ngrokEye.addEventListener("click", () => {
+  ngrokToken.type = ngrokToken.type === "password" ? "text" : "password";
+  ngrokEye.textContent = ngrokToken.type === "password" ? "👁️" : "🙈";
+});
 
 bgToggle.addEventListener("change", async () => {
   try {

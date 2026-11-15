@@ -4,7 +4,7 @@
 
 # ⚡ Spark Bridge
 
-**Ponte PC para agentes de IA** — aplicativo leve (Tauri v2 + Rust) que expõe seu computador para agentes de IA via **MCP (Model Context Protocol)**, com link público gratuito gerado automaticamente pelo Cloudflare Quick Tunnel.
+**Ponte PC para agentes de IA** — aplicativo leve (Tauri v2 + Rust) que expõe seu computador para agentes de IA via **MCP (Model Context Protocol)**, com link público gratuito via Cloudflare Quick Tunnel ou **domínio fixo via ngrok**.
 
 </div>
 
@@ -32,7 +32,7 @@
 O **Spark Bridge** roda no seu PC e cria uma ponte segura entre o computador e agentes de IA (como **Gemini Spark**, **Claude**, **Cursor**, **VS Code** e outros clientes MCP). Ao clicar em **Iniciar Conexão**, ele:
 
 1. Sobe um servidor HTTP local (Axum) na porta `4891`;
-2. Abre um **túnel público HTTPS gratuito** via Cloudflare Quick Tunnel (`https://....trycloudflare.com`);
+2. Abre um **túnel público HTTPS gratuito** via Cloudflare Quick Tunnel (`https://....trycloudflare.com`) ou via **ngrok com domínio fixo** (`https://xxx.ngrok-free.app`);
 3. Gera um **token de segurança** (`sb_...`) para proteger o acesso;
 4. Expõe ferramentas MCP para o agente **ver a tela, controlar mouse/teclado e executar comandos no terminal**.
 
@@ -45,6 +45,7 @@ Tudo isso em um aplicativo desktop leve, com ícone na bandeja do sistema e opç
 | Recurso | Descrição |
 |---|---|
 | 🔗 **Link público grátis** | URL `https://....trycloudflare.com` gerada automaticamente (baixa o `cloudflared` sozinho se não estiver instalado) |
+| 🌐 **Domínio fixo com ngrok** | Use seu authtoken + domínio estático grátis (`xxx.ngrok-free.app`) para uma URL que nunca muda (baixa o `ngrok` sozinho) |
 | 🤖 **MCP Streamable HTTP completo** | `POST /mcp` (JSON-RPC 2.0) + `GET /mcp` (stream SSE), com negociação de versão do protocolo (`2025-03-26`, `2025-06-18`, `2024-11-05`), `Mcp-Session-Id`, notificações `202` e CORS com headers MCP expostos |
 | 🔐 **Autenticação flexível** | Token via `?token=...` na URL, header `Authorization: Bearer ...` ou `X-Api-Key` |
 | 🖼️ **Logo do servidor** | `GET /logo.png` (e `/icon.png`) serve o logo oficial embutido no binário, para clientes MCP/agentes que solicitem o ícone |
@@ -82,7 +83,17 @@ Baixe o instalador para o seu sistema na aba [**Releases**](https://github.com/P
 4. Na seção **Configuração do cliente MCP**, escolha seu cliente e copie o JSON gerado.
 5. Cole a configuração no cliente MCP e reconecte.
 
-> ⚠️ **Importante:** URLs do Cloudflare Quick Tunnel **mudam a cada início** do aplicativo. Sempre copie a URL nova após reconectar.
+> ⚠️ **Importante:** URLs do Cloudflare Quick Tunnel **mudam a cada início** do aplicativo. Sempre copie a URL nova após reconectar. Para uma **URL fixa**, use o ngrok (veja abaixo).
+
+### 🌐 Domínio fixo com ngrok (opcional)
+
+1. Crie uma conta grátis em [ngrok.com](https://ngrok.com) e acesse o [dashboard](https://dashboard.ngrok.com).
+2. Copie seu **Authtoken** (dashboard → *Your Authtoken*).
+3. Em **Domains**, reclame seu **domínio estático grátis** (ex.: `meu-bridge.ngrok-free.app`).
+4. No Spark Bridge, na seção **Túnel (URL pública)**, selecione **ngrok**, cole o authtoken e o domínio, e clique em **Salvar túnel**.
+5. Clique em **Iniciar Conexão** — a URL pública será sempre a do seu domínio.
+
+> O `ngrok` é baixado automaticamente na primeira vez. O authtoken fica salvo **apenas neste PC** (arquivo local com permissão restrita). O plano gratuito do ngrok tem limites (ex.: 1 agente online) — para uso pessoal é suficiente.
 
 ---
 
@@ -243,7 +254,14 @@ Token inválido ou ausente. Confira se copiou o token atual (ele muda a cada in�
 
 ### A URL mudou depois de reiniciar o app
 
-Comportamento esperado: o Cloudflare Quick Tunnel gera uma URL nova a cada conexão. Copie a URL atual na interface e atualize a configuração do cliente MCP.
+Comportamento esperado: o Cloudflare Quick Tunnel gera uma URL nova a cada conexão. Copie a URL atual na interface e atualize a configuração do cliente MCP. Para uma URL fixa, use o **ngrok com domínio estático** (veja a seção acima).
+
+### Erros do ngrok (authtoken/domínio)
+
+- **Authtoken inválido:** confira se copiou o token completo do dashboard (sem espaços).
+- **Domínio em uso / não encontrado:** o domínio precisa estar reclamado na sua conta ngrok (*Domains*).
+- **Limite do plano gratuito:** o ngrok free permite 1 agente online — feche outros túneis ngrok antes de conectar.
+- **Página de aviso do ngrok no navegador:** o plano gratuito pode exibir um aviso em navegadores; clientes MCP (não-navegador) acessam normalmente.
 
 ### Captura de tela falha (Linux)
 
@@ -327,8 +345,8 @@ As releases são criadas pelo workflow **Build & Release Spark Bridge** (`.githu
 # 2. Commit e push na main
 git push origin main
 # 3. Crie e envie a tag
-git tag v0.2.2
-git push origin v0.2.2
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 O workflow compila para Linux, Windows e macOS e publica os instaladores na aba Releases. Também é possível rodar manualmente em **Actions → Build & Release Spark Bridge → Run workflow** informando a tag.
