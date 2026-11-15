@@ -102,6 +102,25 @@ async fn auth_middleware(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
 
+    let query_token = req.uri().query().and_then(|q| {
+        q.split('&').find_map(|pair| {
+            let mut parts = pair.splitn(2, '=');
+            if parts.next() == Some("token") {
+                parts.next()
+            } else {
+                None
+            }
+        })
+    });
+
+    if let Some(t) = query_token {
+        if t == state.token.as_str() {
+            return Ok(next.run(req).await);
+        } else {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    }
+
     match auth_header {
         Some(h) if h.starts_with("Bearer ") => {
             let provided = &h[7..];

@@ -3,6 +3,8 @@ const { invoke } = window.__TAURI__.core;
 const toggleBtn = document.getElementById("toggle-btn");
 const btnText = document.getElementById("btn-text");
 const statusBadge = document.getElementById("status-badge");
+const statusText = document.getElementById("status-text");
+const mcpUrlInput = document.getElementById("mcp-url");
 const publicUrlInput = document.getElementById("public-url");
 const apiTokenInput = document.getElementById("api-token");
 const bgToggle = document.getElementById("bg-toggle");
@@ -17,17 +19,21 @@ function updateUI(status) {
   bgToggle.checked = status.background_mode;
 
   if (status.running) {
-    statusBadge.textContent = "Online";
+    statusText.textContent = "Online";
     statusBadge.className = "badge online";
-    btnText.textContent = "Parar";
+    btnText.textContent = "Parar Conexão";
     toggleBtn.classList.add("stop");
     publicUrlInput.value = status.public_url || "";
+    mcpUrlInput.value = status.public_url
+      ? `${status.public_url}/?token=${status.token}`
+      : "";
   } else {
-    statusBadge.textContent = "Desconectado";
+    statusText.textContent = "Desconectado";
     statusBadge.className = "badge offline";
-    btnText.textContent = "Iniciar";
+    btnText.textContent = "Iniciar Conexão";
     toggleBtn.classList.remove("stop");
     publicUrlInput.value = "";
+    mcpUrlInput.value = "";
   }
 }
 
@@ -48,7 +54,7 @@ toggleBtn.addEventListener("click", async () => {
 
   try {
     if (!isRunning) {
-      statusBadge.textContent = "Conectando túnel...";
+      statusText.textContent = "Conectando túnel...";
       statusBadge.className = "badge loading";
       btnText.textContent = "Iniciando...";
       const status = await invoke("start_bridge");
@@ -61,9 +67,9 @@ toggleBtn.addEventListener("click", async () => {
   } catch (err) {
     errorMsg.textContent = "Erro: " + err;
     errorMsg.classList.remove("hidden");
-    statusBadge.textContent = "Desconectado";
+    statusText.textContent = "Desconectado";
     statusBadge.className = "badge offline";
-    btnText.textContent = "Iniciar";
+    btnText.textContent = "Iniciar Conexão";
     toggleBtn.classList.remove("stop");
   } finally {
     toggleBtn.disabled = false;
