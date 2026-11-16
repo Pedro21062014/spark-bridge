@@ -378,8 +378,8 @@ As releases são criadas pelo workflow **Build & Release Spark Bridge** (`.githu
 # 2. Commit e push na main
 git push origin main
 # 3. Crie e envie a tag
-git tag v0.8.0
-git push origin v0.8.0
+git tag v0.9.0
+git push origin v0.9.0
 ```
 
 O workflow compila para Linux, Windows e macOS e publica os instaladores na aba Releases. Também é possível rodar manualmente em **Actions → Build & Release Spark Bridge → Run workflow** informando a tag.
@@ -393,3 +393,8 @@ O workflow **CI** (`.github/workflows/ci.yml`) roda a cada push/PR na `main`: `c
 Feito com ⚡ por Spark Bridge · Tauri + Rust · MCP Streamable HTTP
 
 </div>
+
+
+### URI de redirecionamento do Gemini
+
+Na tela de conexão do Gemini, copie a URI de redirecionamento, cole-a no campo **URI de redirecionamento do Gemini** dentro do Spark Bridge e clique em **Salvar URI** antes de concluir a autorização.
