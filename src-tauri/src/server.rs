@@ -66,7 +66,7 @@ const LOGO_PNG: &[u8] = include_bytes!("../icons/icon.png");
 struct HealthResponse {
     status: &'static str,
     version: &'static str,
-    logo: &'static str,
+    logo: String,
 }
 
 #[derive(Serialize)]
@@ -180,9 +180,13 @@ fn request_origin(headers: &HeaderMap) -> String {
     let scheme = headers
         .get("x-forwarded-proto")
         .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
         .unwrap_or("https");
     let host = headers
-        .get(header::HOST)
+        .get("x-forwarded-host")
+        .or_else(|| headers.get(header::HOST))
         .and_then(|v| v.to_str().ok())
         .unwrap_or("127.0.0.1:4891");
     format!("{}://{}", scheme, host)
@@ -341,6 +345,7 @@ async fn auth_middleware(
         || path == "/openapi.json"
         || path == "/logo.png"
         || path == "/icon.png"
+        || path == "/favicon.ico"
         || path.starts_with("/.well-known/")
         || path.starts_with("/oauth/")
     {
@@ -385,11 +390,12 @@ async fn auth_middleware(
     }
 }
 
-async fn health() -> Json<HealthResponse> {
+async fn health(headers: HeaderMap) -> Json<HealthResponse> {
+    let origin = request_origin(&headers);
     Json(HealthResponse {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
-        logo: "/logo.png",
+        logo: format!("{}/logo.png", origin),
     })
 }
 
@@ -436,14 +442,20 @@ async fn logo() -> Response {
     resp
 }
 
-async fn openapi_spec() -> Json<serde_json::Value> {
+/// Alias compatível com clientes que procuram automaticamente /favicon.ico.
+async fn favicon() -> Response {
+    logo().await
+}
+
+async fn openapi_spec(headers: HeaderMap) -> Json<serde_json::Value> {
+    let logo_url = format!("{}/logo.png", request_origin(&headers));
     Json(serde_json::json!({
         "openapi": "3.0.3",
         "info": {
             "title": "Spark Bridge PC Agent API",
             "version": env!("CARGO_PKG_VERSION"),
             "description": "Control screen, mouse, keyboard, and terminal on the user's PC. MCP Streamable HTTP endpoint: POST /mcp",
-            "x-logo": { "url": "/logo.png" }
+            "x-logo": { "url": logo_url }
         },
         "components": {
             "securitySchemes": {
@@ -1866,6 +1878,7 @@ async fn handle_mcp_request(
     req: &serde_json::Value,
     session_id: &mut Option<String>,
     protocol_version: &mut Option<String>,
+    icon_url: &str,
 ) -> Option<serde_json::Value> {
     let method = req.get("method").and_then(|v| v.as_str()).unwrap_or("");
     let id = req.get("id").cloned().unwrap_or(serde_json::Value::Null);
@@ -1893,7 +1906,12 @@ async fn handle_mcp_request(
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": {
                     "name": "spark-bridge",
-                    "version": env!("CARGO_PKG_VERSION")
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "icons": [{
+                        "src": icon_url,
+                        "mimeType": "image/png",
+                        "sizes": ["512x512"]
+                    }]
                 }
             })
         }
@@ -1953,6 +1971,7 @@ fn mcp_response_with_headers(
 }
 
 async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
+    let icon_url = format!("{}/logo.png", request_origin(&headers));
     // Ecoa sessao/protocolo enviados pelo cliente, se houver.
     let mut session_id = headers
         .get("mcp-session-id")
@@ -1996,7 +2015,7 @@ async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
         }
         let mut responses = Vec::new();
         for item in items {
-            if let Some(r) = handle_mcp_request(item, &mut session_id, &mut protocol_version).await {
+            if let Some(r) = handle_mcp_request(item, &mut session_id, &mut protocol_version, &icon_url).await {
                 responses.push(r);
             }
         }
@@ -2011,7 +2030,7 @@ async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
         );
     }
 
-    match handle_mcp_request(&value, &mut session_id, &mut protocol_version).await {
+    match handle_mcp_request(&value, &mut session_id, &mut protocol_version, &icon_url).await {
         None => StatusCode::ACCEPTED.into_response(),
         Some(resp) => mcp_response_with_headers(StatusCode::OK, resp, &session_id, &protocol_version),
     }
@@ -2068,6 +2087,7 @@ pub async fn start_http_server(
         .route("/health", get(health))
         .route("/logo.png", get(logo))
         .route("/icon.png", get(logo))
+        .route("/favicon.ico", get(favicon))
         .route("/openapi.json", get(openapi_spec))
         .route("/.well-known/oauth-protected-resource", get(oauth_protected_resource))
         .route("/.well-known/oauth-authorization-server", get(oauth_authorization_server))
