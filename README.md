@@ -47,7 +47,7 @@ Tudo isso em um aplicativo desktop leve, com ícone na bandeja do sistema e opç
 | 🔗 **Link público grátis** | URL `https://....trycloudflare.com` gerada automaticamente (baixa o `cloudflared` sozinho se não estiver instalado) |
 | 🌐 **Domínio fixo com ngrok** | Use seu authtoken + domínio estático grátis (`xxx.ngrok-free.app`) para uma URL que nunca muda (baixa o `ngrok` sozinho) |
 | 🤖 **MCP Streamable HTTP completo** | `POST /mcp` (JSON-RPC 2.0) + `GET /mcp` (stream SSE), com negociação de versão do protocolo (`2025-03-26`, `2025-06-18`, `2024-11-05`), `Mcp-Session-Id`, notificações `202` e CORS com headers MCP expostos |
-| 🔐 **Autenticação flexível** | Token via `?token=...` na URL, header `Authorization: Bearer ...` ou `X-Api-Key` |
+| 🔐 **Autenticação flexível** | OAuth 2.1/PKCE para clientes remotos como Gemini, além de `?token=...`, `Authorization: Bearer ...` e `X-Api-Key` |
 | 🖼️ **Logo do servidor** | `GET /logo.png` (e `/icon.png`) serve o logo oficial embutido no binário, para clientes MCP/agentes que solicitem o ícone |
 | 🔍 **Teste de conexão integrado** | Botão **Testar conexão MCP** faz o handshake (`initialize` + `tools/list`) e mostra latência, versão e quantidade de ferramentas |
 | ⚙️ **Config pronta por cliente** | Gera o JSON para Claude Desktop, Cursor, VS Code e Gemini CLI com um clique |
@@ -63,6 +63,7 @@ Tudo isso em um aplicativo desktop leve, com ícone na bandeja do sistema e opç
 | 🔄 **Executar em segundo plano** | Minimiza para a bandeja do sistema ao fechar a janela |
 | 🚀 **Iniciar com o sistema** | Abre automaticamente quando o PC ligar |
 | 🔑 **Regenerar token** | Gera um novo token de segurança a qualquer momento |
+| 🛡️ **Aba Segurança** | Permite ou bloqueia individualmente cada ferramenta disponível ao agente |
 
 ---
 
@@ -268,7 +269,9 @@ Token inválido ou ausente. Confira se copiou o token atual (ele muda a cada in�
 
 ### Gemini: “usa um método de autenticação que o Gemini não aceita / exige OAuth”
 
-O Spark Bridge autentica com **token Bearer ou `?token=` na URL** (não usa OAuth). Quando o Gemini recebe `401`, ele tenta o fluxo OAuth padrão e falha. Isso acontece quando o token não chega ao servidor — o Gemini CLI nem sempre envia headers customizados. **Solução:** no `settings.json` do Gemini CLI, use a URL **completa com `?token=`** (a interface já gera esse formato na aba de configuração). Observação: o app web do Gemini (gemini.google.com) exige OAuth para conectores e não aceita token Bearer — use o **Gemini CLI** para conectar no Spark Bridge.
+O Spark Bridge agora publica descoberta OAuth (`/.well-known/oauth-protected-resource` e `/.well-known/oauth-authorization-server`), autorização com PKCE e troca de código por token. Ao adicionar a URL `/mcp` em um cliente Gemini compatível com conectores OAuth, conclua a tela **Autorizar o Spark Bridge** que será aberta pelo fluxo do Gemini. Para o Gemini CLI, a URL com `?token=` continua disponível e a configuração também aceita header Bearer.
+
+Na aba **Segurança**, escolha as ferramentas que podem ser usadas. O servidor bloqueia chamadas MCP desativadas, mesmo que o cliente tente invocá-las diretamente.
 
 ### O túnel não conecta / timeout
 

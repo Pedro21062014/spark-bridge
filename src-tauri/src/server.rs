@@ -1,22 +1,24 @@
 use axum::{
     body::Bytes,
-    extract::{Request, State},
+    extract::{Form, Json as ExtractJson, Query, Request, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Json, Response, Sse},
+    response::{Html, IntoResponse, Json, Redirect, Response, Sse},
     routing::{get, post},
     Router,
 };
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD}, Engine as _};
 use enigo::{Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 use image::{DynamicImage, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 use std::process::Stdio;
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc, OnceLock};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex as StdMutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 use tokio::process::Command;
 use tokio::sync::{oneshot, RwLock};
+use sha2::{Digest, Sha256};
 use tower_http::cors::{Any, CorsLayer};
 use xcap::Monitor;
 
@@ -33,7 +35,24 @@ fn set_agent_activity(active: bool) {
 #[derive(Clone)]
 pub struct ServerState {
     pub token: Arc<RwLock<String>>,
+    pub permissions: Arc<RwLock<BTreeMap<String, bool>>>,
 }
+
+#[derive(Clone)]
+struct OAuthCode {
+    client_id: String,
+    redirect_uri: String,
+    code_challenge: Option<String>,
+    expires_at: std::time::Instant,
+}
+
+struct OAuthStore {
+    codes: HashMap<String, OAuthCode>,
+    access_tokens: HashMap<String, String>,
+}
+
+static OAUTH_STORE: OnceLock<StdMutex<OAuthStore>> = OnceLock::new();
+static PERMISSIONS: OnceLock<Arc<RwLock<BTreeMap<String, bool>>>> = OnceLock::new();
 
 /// Logo oficial do Spark Bridge (embutido no binario).
 /// Servido em GET /logo.png e GET /icon.png para clientes MCP/agentes
@@ -129,6 +148,132 @@ struct ActionRes {
     message: String,
 }
 
+fn oauth_store() -> &'static StdMutex<OAuthStore> {
+    OAUTH_STORE.get_or_init(|| StdMutex::new(OAuthStore {
+        codes: HashMap::new(),
+        access_tokens: HashMap::new(),
+    }))
+}
+
+fn random_oauth_value(prefix: &str) -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+    format!("{}_{}", prefix, URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn request_origin(headers: &HeaderMap) -> String {
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("https");
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("127.0.0.1:4891");
+    format!("{}://{}", scheme, host)
+}
+
+fn html_escape(value: &str) -> String {
+    value.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+fn oauth_query_value(value: &str) -> String {
+    value.bytes().map(|b| match b {
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+        _ => format!("%{:02X}", b),
+    }).collect()
+}
+
+fn oauth_valid_access_token(token: &str) -> bool {
+    oauth_store().lock().map(|store| store.access_tokens.contains_key(token)).unwrap_or(false)
+}
+
+async fn oauth_protected_resource(headers: HeaderMap) -> impl IntoResponse {
+    let origin = request_origin(&headers);
+    Json(serde_json::json!({
+        "resource": format!("{}/mcp", origin),
+        "authorization_servers": [origin],
+        "scopes_supported": ["spark:use"]
+    }))
+}
+
+async fn oauth_authorization_server(headers: HeaderMap) -> impl IntoResponse {
+    let origin = request_origin(&headers);
+    Json(serde_json::json!({
+        "issuer": origin,
+        "authorization_endpoint": format!("{}/oauth/authorize", origin),
+        "token_endpoint": format!("{}/oauth/token", origin),
+        "registration_endpoint": format!("{}/oauth/register", origin),
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"]
+    }))
+}
+
+async fn oauth_authorize_page(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
+    let hidden = ["client_id", "redirect_uri", "response_type", "scope", "state", "code_challenge", "code_challenge_method"]
+        .iter()
+        .filter_map(|key| params.get(*key).map(|value| format!("<input type=hidden name=\"{}\" value=\"{}\">", key, html_escape(value))))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Html(format!(r#"<!doctype html><meta charset=utf-8><title>Autorizar Spark Bridge</title>
+<style>body{{font:16px system-ui;max-width:520px;margin:12vh auto;padding:24px;background:#0b1020;color:#f8fafc}}button{{padding:12px 18px;border:0;border-radius:8px;background:#3b82f6;color:white;font-weight:600}}.box{{padding:24px;border:1px solid #334155;border-radius:14px}}</style>
+<div class=box><h1>Autorizar o Spark Bridge</h1><p>O cliente Gemini solicitou acesso às ferramentas habilitadas na aba Segurança deste aplicativo.</p><p>Somente as permissões que você ativou serão disponibilizadas ao agente.</p><form method=post action="/oauth/authorize">{}<button type=submit>Autorizar acesso</button></form></div>"#, hidden))
+}
+
+async fn oauth_authorize_submit(Form(params): Form<HashMap<String, String>>) -> impl IntoResponse {
+    let client_id = params.get("client_id").cloned().unwrap_or_default();
+    let redirect_uri = params.get("redirect_uri").cloned().unwrap_or_default();
+    let state = params.get("state").cloned().unwrap_or_default();
+    if client_id.is_empty() || redirect_uri.is_empty() {
+        return (StatusCode::BAD_REQUEST, "client_id e redirect_uri sao obrigatorios").into_response();
+    }
+    let code = random_oauth_value("code");
+    if let Ok(mut store) = oauth_store().lock() {
+        store.codes.insert(code.clone(), OAuthCode {
+            client_id,
+            redirect_uri: redirect_uri.clone(),
+            code_challenge: params.get("code_challenge").cloned(),
+            expires_at: std::time::Instant::now() + std::time::Duration::from_secs(300),
+        });
+    }
+    let mut location = format!("{}{}code={}", redirect_uri, if redirect_uri.contains('?') { '&' } else { '?' }, oauth_query_value(&code));
+    if !state.is_empty() { location.push_str(&format!("&state={}", oauth_query_value(&state))); }
+    Redirect::temporary(&location).into_response()
+}
+
+async fn oauth_register(ExtractJson(body): ExtractJson<serde_json::Value>) -> impl IntoResponse {
+    let client_id = random_oauth_value("client");
+    Json(serde_json::json!({
+        "client_id": client_id,
+        "client_name": body.get("client_name").and_then(|v| v.as_str()).unwrap_or("MCP client"),
+        "redirect_uris": body.get("redirect_uris").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "token_endpoint_auth_method": "none"
+    })).into_response()
+}
+
+async fn oauth_token(Form(params): Form<HashMap<String, String>>) -> impl IntoResponse {
+    if params.get("grant_type").map(String::as_str) != Some("authorization_code") {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"unsupported_grant_type"}))).into_response();
+    }
+    let code = params.get("code").cloned().unwrap_or_default();
+    let record = oauth_store().lock().ok().and_then(|mut store| store.codes.remove(&code));
+    let Some(record) = record else { return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid_grant"}))).into_response(); };
+    if record.expires_at < std::time::Instant::now() || params.get("client_id") != Some(&record.client_id) || params.get("redirect_uri") != Some(&record.redirect_uri) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid_grant"}))).into_response();
+    }
+    if let Some(challenge) = record.code_challenge {
+        let verifier = params.get("code_verifier").cloned().unwrap_or_default();
+        let actual = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+        if actual != challenge { return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid_grant","error_description":"PKCE verification failed"}))).into_response(); }
+    }
+    let access_token = random_oauth_value("sb_oauth");
+    if let Ok(mut store) = oauth_store().lock() { store.access_tokens.insert(access_token.clone(), record.client_id); }
+    Json(serde_json::json!({"access_token":access_token,"token_type":"Bearer","expires_in":3600,"scope":"spark:use"})).into_response()
+}
+
 fn unauthorized_response() -> Response {
     let mut resp = (
         StatusCode::UNAUTHORIZED,
@@ -159,6 +304,8 @@ async fn auth_middleware(
         || path == "/openapi.json"
         || path == "/logo.png"
         || path == "/icon.png"
+        || path.starts_with("/.well-known/")
+        || path.starts_with("/oauth/")
     {
         return Ok(next.run(req).await);
     }
@@ -188,8 +335,16 @@ async fn auth_middleware(
     let expected = state.token.read().await.clone();
 
     match provided {
-        Some(t) if t == expected => Ok(next.run(req).await),
-        _ => Err(unauthorized_response()),
+        Some(t) if t == expected || oauth_valid_access_token(&t) => Ok(next.run(req).await),
+        _ => {
+            let origin = request_origin(&headers);
+            let mut response = unauthorized_response();
+            let challenge = format!("Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource\", scope=\"spark:use\"", origin);
+            if let Ok(value) = HeaderValue::from_str(&challenge) {
+                response.headers_mut().insert(header::WWW_AUTHENTICATE, value);
+            }
+            Err(response)
+        }
     }
 }
 
@@ -1366,6 +1521,11 @@ fn mcp_tools_list() -> serde_json::Value {
 }
 
 async fn call_tool(name: &str, args: serde_json::Value) -> (serde_json::Value, bool) {
+    if let Some(permissions) = PERMISSIONS.get() {
+        if !permissions.read().await.get(name).copied().unwrap_or(false) {
+            return (serde_json::json!([{ "type": "text", "text": format!("Ferramenta bloqueada pela aba Segurança: {}", name) }]), true);
+        }
+    }
     match name {
         "screen_capture" => {
             let res =
@@ -1842,13 +2002,15 @@ pub async fn start_http_server(
     token: Arc<RwLock<String>>,
     shutdown_rx: oneshot::Receiver<()>,
     app_handle: Option<AppHandle>,
+    permissions: Arc<RwLock<BTreeMap<String, bool>>>,
 ) -> Result<(), String> {
     if let Some(app_handle) = app_handle {
         let _ = APP_HANDLE.set(app_handle);
     }
+    let _ = PERMISSIONS.set(permissions.clone());
     // Registra o token atual para montar a URL da captura no screen_capture.
     *server_token_slot().lock().unwrap() = Some(token.clone());
-    let state = ServerState { token };
+    let state = ServerState { token, permissions };
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -1866,6 +2028,11 @@ pub async fn start_http_server(
         .route("/logo.png", get(logo))
         .route("/icon.png", get(logo))
         .route("/openapi.json", get(openapi_spec))
+        .route("/.well-known/oauth-protected-resource", get(oauth_protected_resource))
+        .route("/.well-known/oauth-authorization-server", get(oauth_authorization_server))
+        .route("/oauth/authorize", get(oauth_authorize_page).post(oauth_authorize_submit))
+        .route("/oauth/register", post(oauth_register))
+        .route("/oauth/token", post(oauth_token))
         .route("/", post(mcp_post).get(health))
         .route(
             "/mcp",
@@ -1970,7 +2137,7 @@ mod tests {
     async fn mcp_streamable_http_smoke() {
         let token = std::sync::Arc::new(tokio::sync::RwLock::new("test-token".to_string()));
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        let server = tokio::spawn(start_http_server(4899, token, rx, None));
+        let server = tokio::spawn(start_http_server(4899, token, rx, None, Arc::new(RwLock::new(BTreeMap::new()))));
 
         let client = reqwest::Client::new();
 

@@ -60,12 +60,96 @@ const autostartToggle = document.getElementById("autostart-toggle");
 const errorMsg = document.getElementById("error-msg");
 const toastEl = document.getElementById("toast");
 const tauriMissing = document.getElementById("tauri-missing");
+const connectionTab = document.getElementById("connection-tab");
+const securityTab = document.getElementById("security-tab");
+const securityPanel = document.getElementById("security-panel");
+const permissionsList = document.getElementById("permissions-list");
+const savePermissionsBtn = document.getElementById("save-permissions-btn");
+const enableAllBtn = document.getElementById("enable-all-btn");
+const disableAllBtn = document.getElementById("disable-all-btn");
 const checkComponentsBtn = document.getElementById("check-components-btn");
 const componentsResult = document.getElementById("components-result");
 
 let isRunning = false;
 let currentStatus = null;
 let toastTimer = null;
+
+const TOOL_LABELS = {
+  screen_capture: "Capturar tela",
+  mouse_move: "Mover mouse",
+  mouse_click: "Clicar",
+  mouse_scroll: "Rolar",
+  keyboard_type: "Digitar texto",
+  keyboard_key: "Pressionar teclas e atalhos",
+  terminal_exec: "Executar comandos no terminal",
+  mouse_drag: "Segurar e arrastar mouse",
+  get_screen_info: "Ler informações dos monitores",
+  clipboard_read: "Ler área de transferência",
+  clipboard_write: "Escrever na área de transferência",
+  open_url: "Abrir URLs",
+  wait: "Aguardar",
+  screen_ascii: "Ler tela em ASCII",
+  ocr_screen: "Executar OCR da tela",
+};
+
+function renderPermissions(permissions) {
+  permissionsList.replaceChildren();
+  Object.entries(TOOL_LABELS).forEach(([name, label]) => {
+    const row = document.createElement("label");
+    row.className = "permission-row";
+    const text = document.createElement("span");
+    text.innerHTML = `<strong>${label}</strong><small>${name}</small>`;
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.permission = name;
+    checkbox.checked = permissions[name] !== false;
+    row.append(text, checkbox);
+    permissionsList.append(row);
+  });
+}
+
+function setSecurityTab(active) {
+  connectionTab.classList.toggle("active", !active);
+  securityTab.classList.toggle("active", active);
+  connectionTab.setAttribute("aria-selected", String(!active));
+  securityTab.setAttribute("aria-selected", String(active));
+  securityPanel.classList.toggle("hidden", !active);
+  document.querySelectorAll(".connection-view").forEach((element) => element.classList.toggle("hidden", active));
+}
+
+async function loadPermissions() {
+  if (!hasTauri) {
+    renderPermissions(Object.fromEntries(Object.keys(TOOL_LABELS).map((name) => [name, true])));
+    return;
+  }
+  try {
+    renderPermissions(await invoke("get_permissions"));
+  } catch (err) {
+    permissionsList.textContent = `Não foi possível carregar as permissões: ${err}`;
+  }
+}
+
+async function savePermissions() {
+  if (!hasTauri) return;
+  const permissions = Object.fromEntries(
+    [...permissionsList.querySelectorAll("input[data-permission]")].map((input) => [input.dataset.permission, input.checked])
+  );
+  savePermissionsBtn.disabled = true;
+  try {
+    renderPermissions(await invoke("set_permissions", { permissions }));
+    toast("Permissões salvas no servidor MCP.");
+  } catch (err) {
+    toast(`Erro ao salvar permissões: ${err}`);
+  } finally {
+    savePermissionsBtn.disabled = false;
+  }
+}
+
+connectionTab.addEventListener("click", () => setSecurityTab(false));
+securityTab.addEventListener("click", () => { setSecurityTab(true); loadPermissions(); });
+savePermissionsBtn.addEventListener("click", savePermissions);
+enableAllBtn.addEventListener("click", () => permissionsList.querySelectorAll("input").forEach((input) => { input.checked = true; }));
+disableAllBtn.addEventListener("click", () => permissionsList.querySelectorAll("input").forEach((input) => { input.checked = false; }));
 
 function renderComponents(components) {
   componentsResult.replaceChildren();
@@ -278,6 +362,7 @@ async function init() {
     const autostart = await invoke("get_autostart");
     autostartToggle.checked = autostart;
     await checkComponents();
+    await loadPermissions();
   } catch (err) {
     console.error("Init error:", err);
   }

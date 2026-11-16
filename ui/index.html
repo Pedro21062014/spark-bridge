@@ -26,12 +26,35 @@
       </div>
     </header>
 
-    <p id="tauri-missing" class="notice hidden">
+    <nav class="tab-nav" role="tablist" aria-label="Seções do Spark Bridge">
+      <button id="connection-tab" class="tab-btn active" role="tab" aria-selected="true">Conexão</button>
+      <button id="security-tab" class="tab-btn" role="tab" aria-selected="false">Segurança</button>
+    </nav>
+
+    <section id="security-panel" class="card security-panel hidden" role="tabpanel">
+      <div>
+        <h2>Gerenciamento de segurança</h2>
+        <p class="hint">Escolha exatamente quais ferramentas o agente pode usar. Alterações valem para MCP e bloqueiam a ferramenta no servidor.</p>
+      </div>
+      <div class="security-actions">
+        <button id="enable-all-btn" class="btn-copy">Permitir tudo</button>
+        <button id="disable-all-btn" class="btn-copy">Bloquear tudo</button>
+        <button id="save-permissions-btn" class="btn-secondary">Salvar permissões</button>
+      </div>
+      <div id="permissions-list" class="permissions-list"></div>
+      <div class="oauth-note">
+        <strong>Gemini / OAuth</strong>
+        <p>O servidor agora publica descoberta OAuth, PKCE e uma tela de consentimento. Ao adicionar a URL MCP no Gemini, autorize o acesso quando a página do Spark Bridge abrir.</p>
+        <small>Não compartilhe a URL pública nem os tokens. Para revogar acessos OAuth, clique em “Parar Conexão” ou gere um novo token.</small>
+      </div>
+    </section>
+
+    <p id="tauri-missing" class="notice hidden connection-view">
       ⚠️ Esta página precisa ser aberta dentro do aplicativo <strong>Spark Bridge</strong> (Tauri).
       No navegador, apenas a pré-visualização do layout está disponível.
     </p>
 
-    <main class="card main-card">
+    <main class="card main-card connection-view">
       <button id="toggle-btn" class="btn-primary">
         <span id="btn-text">Iniciar Conexão</span>
       </button>
@@ -89,7 +112,7 @@
       </div>
     </main>
 
-    <section class="card components-card">
+    <section class="card components-card connection-view">
       <div class="row-between">
         <div>
           <h2>Componentes do agente</h2>
@@ -102,7 +125,7 @@
       </div>
     </section>
 
-    <section class="card tunnel-card">
+    <section class="card tunnel-card connection-view">
       <div class="row-between">
         <h2>Túnel (URL pública)</h2>
         <select id="provider-select" class="select">
@@ -138,7 +161,7 @@
       <small id="provider-hint" class="hint">Cloudflare Quick Tunnel: sem conta, URL muda a cada início.</small>
     </section>
 
-    <section class="card config-card">
+    <section class="card config-card connection-view">
       <div class="row-between">
         <h2>Configuração do cliente MCP</h2>
         <select id="client-select" class="select">
@@ -156,7 +179,7 @@
       </div>
     </section>
 
-    <section class="card settings">
+    <section class="card settings connection-view">
       <h2>Configurações</h2>
       <label class="toggle-row">
         <div>
@@ -175,7 +198,7 @@
       </label>
     </section>
 
-    <section class="card info">
+    <section class="card info connection-view">
       <h2>Endpoints disponíveis</h2>
       <div class="endpoints-grid">
         <div class="ep"><code>POST /mcp</code><span>MCP Streamable HTTP</span></div>
@@ -198,7 +221,7 @@
       </div>
     </section>
 
-    <details class="card help">
+    <details class="card help connection-view">
       <summary>❓ Como conectar e resolver erros</summary>
       <ol>
         <li>Clique em <strong>Iniciar Conexão</strong> e aguarde o status ficar <strong>Online</strong>.</li>
@@ -215,7 +238,7 @@
       </ul>
     </details>
 
-    <footer class="footer">
+    <footer class="footer connection-view">
       <span>Spark Bridge v0.6.0 · Tauri + Rust · MCP Streamable HTTP</span>
     </footer>
   </div>

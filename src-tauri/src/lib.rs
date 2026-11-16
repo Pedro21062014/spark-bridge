@@ -6,6 +6,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command as StdCommand;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -27,6 +28,7 @@ struct BridgeInner {
     ngrok_domain: String,
     server_shutdown: Option<oneshot::Sender<()>>,
     tunnel_child: Option<Child>,
+    permissions: Arc<RwLock<BTreeMap<String, bool>>>,
 }
 
 struct AppState(Arc<Mutex<BridgeInner>>);
@@ -96,6 +98,38 @@ fn check_components() -> Vec<ComponentStatus> {
             install_hint: "Windows: winget install UB-Mannheim.TesseractOCR | Linux: sudo apt install tesseract-ocr | macOS: brew install tesseract".into(),
         },
     ]
+}
+
+fn default_permissions() -> BTreeMap<String, bool> {
+    [
+        "screen_capture", "mouse_move", "mouse_click", "mouse_scroll",
+        "keyboard_type", "keyboard_key", "terminal_exec", "mouse_drag",
+        "get_screen_info", "clipboard_read", "clipboard_write", "open_url",
+        "wait", "screen_ascii", "ocr_screen",
+    ]
+    .into_iter()
+    .map(|name| (name.to_string(), true))
+    .collect()
+}
+
+#[tauri::command]
+async fn get_permissions(state: State<'_, AppState>) -> Result<BTreeMap<String, bool>, String> {
+    Ok(state.0.lock().await.permissions.read().await.clone())
+}
+
+#[tauri::command]
+async fn set_permissions(
+    state: State<'_, AppState>,
+    permissions: BTreeMap<String, bool>,
+) -> Result<BTreeMap<String, bool>, String> {
+    let allowed_names = default_permissions();
+    let normalized = allowed_names
+        .into_iter()
+        .map(|(name, default)| (name.clone(), permissions.get(&name).copied().unwrap_or(default)))
+        .collect::<BTreeMap<_, _>>();
+    let inner = state.0.lock().await;
+    *inner.permissions.write().await = normalized.clone();
+    Ok(normalized)
 }
 
 fn generate_token() -> String {
@@ -341,7 +375,7 @@ async fn start_bridge(
     state: State<'_, AppState>,
 ) -> Result<BridgeStatus, String> {
     let port: u16 = 4891;
-    let (token_arc, provider, ngrok_authtoken, ngrok_domain) = {
+    let (token_arc, provider, ngrok_authtoken, ngrok_domain, permissions) = {
         let inner = state.0.lock().await;
         if inner.running {
             return Ok(snapshot(&inner).await);
@@ -351,13 +385,14 @@ async fn start_bridge(
             inner.tunnel_provider.clone(),
             inner.ngrok_authtoken.clone(),
             inner.ngrok_domain.clone(),
+            inner.permissions.clone(),
         )
     };
 
     let (tx, rx) = oneshot::channel::<()>();
     let server_app = app.clone();
     tokio::spawn(async move {
-        if let Err(e) = server::start_http_server(port, token_arc, rx, Some(server_app)).await {
+        if let Err(e) = server::start_http_server(port, token_arc, rx, Some(server_app), permissions).await {
             eprintln!("HTTP server error: {}", e);
         }
     });
@@ -443,6 +478,7 @@ pub fn run() {
         ngrok_domain: String::new(),
         server_shutdown: None,
         tunnel_child: None,
+        permissions: Arc::new(RwLock::new(default_permissions())),
     })));
 
     tauri::Builder::default()
@@ -511,6 +547,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_status,
+            get_permissions,
+            set_permissions,
             check_components,
             set_background_mode,
             set_tunnel_config,
