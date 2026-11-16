@@ -262,7 +262,9 @@ async fn oauth_authorize_submit(Form(params): Form<HashMap<String, String>>) -> 
     }
     let mut location = format!("{}{}code={}", redirect_uri, if redirect_uri.contains('?') { '&' } else { '?' }, oauth_query_value(&code));
     if !state.is_empty() { location.push_str(&format!("&state={}", oauth_query_value(&state))); }
-    Redirect::temporary(&location).into_response()
+    // Depois do POST de consentimento, o callback OAuth deve receber GET.
+    // Um 307 preserva POST e faz o callback do Gemini responder 405.
+    Redirect::to(&location).into_response()
 }
 
 async fn oauth_register(ExtractJson(body): ExtractJson<serde_json::Value>) -> impl IntoResponse {
