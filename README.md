@@ -275,6 +275,8 @@ Na aba **Segurança**, escolha as ferramentas que podem ser usadas. O servidor b
 
 ### O túnel não conecta / timeout
 
+O Spark Bridge só exibe **Online** depois de confirmar o servidor local e o endpoint público em `/health`. Se o ngrok encerrar, a conexão não é marcada como Online e a mensagem inclui os últimos logs do processo.
+
 - Verifique sua conexão com a internet;
 - O `cloudflared` é baixado automaticamente na primeira vez — aguarde o download;
 - Feche outros túneis/servidores que possam estar usando a porta `4891`;
@@ -378,8 +380,8 @@ As releases são criadas pelo workflow **Build & Release Spark Bridge** (`.githu
 # 2. Commit e push na main
 git push origin main
 # 3. Crie e envie a tag
-git tag v0.9.0
-git push origin v0.9.0
+git tag v0.10.0
+git push origin v0.10.0
 ```
 
 O workflow compila para Linux, Windows e macOS e publica os instaladores na aba Releases. Também é possível rodar manualmente em **Actions → Build & Release Spark Bridge → Run workflow** informando a tag.
