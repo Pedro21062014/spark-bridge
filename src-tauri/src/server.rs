@@ -47,6 +47,8 @@ struct OAuthCode {
 }
 
 struct OAuthStore {
+    client_id: String,
+    client_secret: String,
     codes: HashMap<String, OAuthCode>,
     access_tokens: HashMap<String, String>,
 }
@@ -150,6 +152,8 @@ struct ActionRes {
 
 fn oauth_store() -> &'static StdMutex<OAuthStore> {
     OAUTH_STORE.get_or_init(|| StdMutex::new(OAuthStore {
+        client_id: "spark-bridge-gemini".to_string(),
+        client_secret: String::new(),
         codes: HashMap::new(),
         access_tokens: HashMap::new(),
     }))
@@ -208,7 +212,7 @@ async fn oauth_authorization_server(headers: HeaderMap) -> impl IntoResponse {
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["none"]
+        "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"]
     }))
 }
 
@@ -245,24 +249,37 @@ async fn oauth_authorize_submit(Form(params): Form<HashMap<String, String>>) -> 
 }
 
 async fn oauth_register(ExtractJson(body): ExtractJson<serde_json::Value>) -> impl IntoResponse {
-    let client_id = random_oauth_value("client");
+    let (client_id, client_secret) = oauth_store().lock().map(|store| (store.client_id.clone(), store.client_secret.clone())).unwrap_or_else(|_| ("spark-bridge-gemini".to_string(), String::new()));
     Json(serde_json::json!({
         "client_id": client_id,
         "client_name": body.get("client_name").and_then(|v| v.as_str()).unwrap_or("MCP client"),
+        "client_secret": client_secret,
         "redirect_uris": body.get("redirect_uris").cloned().unwrap_or_else(|| serde_json::json!([])),
-        "token_endpoint_auth_method": "none"
+        "token_endpoint_auth_method": "client_secret_post"
     })).into_response()
 }
 
-async fn oauth_token(Form(params): Form<HashMap<String, String>>) -> impl IntoResponse {
+async fn oauth_token(headers: HeaderMap, Form(params): Form<HashMap<String, String>>) -> impl IntoResponse {
     if params.get("grant_type").map(String::as_str) != Some("authorization_code") {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"unsupported_grant_type"}))).into_response();
     }
     let code = params.get("code").cloned().unwrap_or_default();
     let record = oauth_store().lock().ok().and_then(|mut store| store.codes.remove(&code));
     let Some(record) = record else { return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid_grant"}))).into_response(); };
-    if record.expires_at < std::time::Instant::now() || params.get("client_id") != Some(&record.client_id) || params.get("redirect_uri") != Some(&record.redirect_uri) {
+    let basic_credentials = headers.get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Basic "))
+        .and_then(|value| BASE64.decode(value).ok())
+        .and_then(|value| String::from_utf8(value).ok())
+        .and_then(|value| value.split_once(':').map(|(client_id, secret)| (client_id.to_string(), secret.to_string())));
+    let provided_client_id = params.get("client_id").cloned().or_else(|| basic_credentials.as_ref().map(|(client_id, _)| client_id.clone()));
+    if record.expires_at < std::time::Instant::now() || provided_client_id.as_deref() != Some(record.client_id.as_str()) || params.get("redirect_uri") != Some(&record.redirect_uri) {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid_grant"}))).into_response();
+    }
+    let provided_secret = params.get("client_secret").cloned().or_else(|| basic_credentials.map(|(_, secret)| secret));
+    let expected_secret = oauth_store().lock().map(|store| store.client_secret.clone()).unwrap_or_default();
+    if expected_secret.is_empty() || provided_secret.as_deref() != Some(expected_secret.as_str()) {
+        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error":"invalid_client"}))).into_response();
     }
     if let Some(challenge) = record.code_challenge {
         let verifier = params.get("code_verifier").cloned().unwrap_or_default();
@@ -2003,11 +2020,17 @@ pub async fn start_http_server(
     shutdown_rx: oneshot::Receiver<()>,
     app_handle: Option<AppHandle>,
     permissions: Arc<RwLock<BTreeMap<String, bool>>>,
+    oauth_client_id: String,
+    oauth_client_secret: String,
 ) -> Result<(), String> {
     if let Some(app_handle) = app_handle {
         let _ = APP_HANDLE.set(app_handle);
     }
     let _ = PERMISSIONS.set(permissions.clone());
+    if let Ok(mut store) = oauth_store().lock() {
+        store.client_id = oauth_client_id;
+        store.client_secret = oauth_client_secret;
+    }
     // Registra o token atual para montar a URL da captura no screen_capture.
     *server_token_slot().lock().unwrap() = Some(token.clone());
     let state = ServerState { token, permissions };
@@ -2139,7 +2162,7 @@ mod tests {
     async fn mcp_streamable_http_smoke() {
         let token = std::sync::Arc::new(tokio::sync::RwLock::new("test-token".to_string()));
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        let server = tokio::spawn(start_http_server(4899, token, rx, None, Arc::new(RwLock::new(BTreeMap::new()))));
+        let server = tokio::spawn(start_http_server(4899, token, rx, None, Arc::new(RwLock::new(BTreeMap::new())), "spark-bridge-gemini".to_string(), "test-oauth-secret".to_string()));
 
         let client = reqwest::Client::new();
 

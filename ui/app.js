@@ -47,6 +47,10 @@ const testResult = document.getElementById("test-result");
 const clientSelect = document.getElementById("client-select");
 const configOutput = document.getElementById("config-output");
 const configHint = document.getElementById("config-hint");
+const oauthClientIdInput = document.getElementById("oauth-client-id");
+const oauthClientSecretInput = document.getElementById("oauth-client-secret");
+const oauthSecretEye = document.getElementById("oauth-secret-eye");
+const oauthRedirectUriInput = document.getElementById("oauth-redirect-uri");
 const copyConfigBtn = document.getElementById("copy-config-btn");
 const providerSelect = document.getElementById("provider-select");
 const providerHint = document.getElementById("provider-hint");
@@ -197,7 +201,7 @@ const CLIENT_HINTS = {
   claude: "Cole em claude_desktop_config.json e reinicie o Claude Desktop.",
   cursor: "Cole em .cursor/mcp.json (ou nas configurações de MCP do Cursor).",
   vscode: "Cole em .vscode/mcp.json e clique em Start no VS Code.",
-  gemini: "Cole em ~/.gemini/settings.json (Gemini CLI). Usa token na URL (evita erro de OAuth).",
+  gemini: "No Gemini conectado, preencha URL do servidor MCP, ID do cliente OAuth e chave secreta com os valores abaixo.",
   generic: "Use a URL com ?token=... ou a URL base + header Authorization.",
 };
 
@@ -268,19 +272,12 @@ function buildConfig(client, status) {
         2
       );
     case "gemini":
-      // O Gemini CLI nem sempre envia headers customizados — com o token
-      // na URL (?token=) ele sempre chega e evita o erro de OAuth/401.
-      return JSON.stringify(
-        {
-          mcpServers: {
-            "spark-bridge": {
-              httpUrl: mcpFullUrl(status),
-            },
-          },
-        },
-        null,
-        2
-      );
+      return [
+        `URL do servidor MCP: ${base}`,
+        `ID do cliente OAuth: ${status.oauth_client_id || ""}`,
+        `Chave secreta do cliente OAuth: ${status.oauth_client_secret || ""}`,
+        `URI de redirecionamento: ${oauthRedirectUriInput.value}`,
+      ].join("\n");
     default:
       return [
         `URL: ${mcpFullUrl(status)}`,
@@ -309,6 +306,8 @@ function updateUI(status) {
   currentStatus = status;
   isRunning = status.running;
   apiTokenInput.value = status.token || "";
+  oauthClientIdInput.value = status.oauth_client_id || "";
+  oauthClientSecretInput.value = status.oauth_client_secret || "";
   bgToggle.checked = status.background_mode;
   testBtn.disabled = !status.running;
 
@@ -440,6 +439,11 @@ regenerateBtn.addEventListener("click", async () => {
 tokenEyeBtn.addEventListener("click", () => {
   apiTokenInput.type = apiTokenInput.type === "password" ? "text" : "password";
   tokenEyeBtn.textContent = apiTokenInput.type === "password" ? "👁️" : "🙈";
+});
+
+oauthSecretEye.addEventListener("click", () => {
+  oauthClientSecretInput.type = oauthClientSecretInput.type === "password" ? "text" : "password";
+  oauthSecretEye.textContent = oauthClientSecretInput.type === "password" ? "👁️" : "🙈";
 });
 
 clientSelect.addEventListener("change", refreshConfig);

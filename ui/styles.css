@@ -649,3 +649,15 @@ code {
 [data-theme="light"] .bg-glow {
   background: radial-gradient(circle, rgba(56, 189, 248, 0.12), rgba(99, 102, 241, 0.06), transparent 70%);
 }
+
+.oauth-credentials {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.08);
+}
+.oauth-credentials-title { color: var(--accent-text); font-size: 12px; font-weight: 700; }
+.oauth-credentials .field-group { gap: 5px; }
+.oauth-credentials input { min-width: 0; }

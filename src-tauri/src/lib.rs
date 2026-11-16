@@ -29,6 +29,8 @@ struct BridgeInner {
     server_shutdown: Option<oneshot::Sender<()>>,
     tunnel_child: Option<Child>,
     permissions: Arc<RwLock<BTreeMap<String, bool>>>,
+    oauth_client_id: String,
+    oauth_client_secret: String,
 }
 
 struct AppState(Arc<Mutex<BridgeInner>>);
@@ -43,6 +45,8 @@ pub struct BridgeStatus {
     pub tunnel_provider: String,
     pub ngrok_authtoken: String,
     pub ngrok_domain: String,
+    pub oauth_client_id: String,
+    pub oauth_client_secret: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -153,6 +157,8 @@ async fn snapshot(inner: &BridgeInner) -> BridgeStatus {
         tunnel_provider: inner.tunnel_provider.clone(),
         ngrok_authtoken: inner.ngrok_authtoken.clone(),
         ngrok_domain: inner.ngrok_domain.clone(),
+        oauth_client_id: inner.oauth_client_id.clone(),
+        oauth_client_secret: inner.oauth_client_secret.clone(),
     }
 }
 
@@ -375,7 +381,7 @@ async fn start_bridge(
     state: State<'_, AppState>,
 ) -> Result<BridgeStatus, String> {
     let port: u16 = 4891;
-    let (token_arc, provider, ngrok_authtoken, ngrok_domain, permissions) = {
+    let (token_arc, provider, ngrok_authtoken, ngrok_domain, permissions, oauth_client_id, oauth_client_secret) = {
         let inner = state.0.lock().await;
         if inner.running {
             return Ok(snapshot(&inner).await);
@@ -386,13 +392,15 @@ async fn start_bridge(
             inner.ngrok_authtoken.clone(),
             inner.ngrok_domain.clone(),
             inner.permissions.clone(),
+            inner.oauth_client_id.clone(),
+            inner.oauth_client_secret.clone(),
         )
     };
 
     let (tx, rx) = oneshot::channel::<()>();
     let server_app = app.clone();
     tokio::spawn(async move {
-        if let Err(e) = server::start_http_server(port, token_arc, rx, Some(server_app), permissions).await {
+        if let Err(e) = server::start_http_server(port, token_arc, rx, Some(server_app), permissions, oauth_client_id, oauth_client_secret).await {
             eprintln!("HTTP server error: {}", e);
         }
     });
@@ -479,6 +487,8 @@ pub fn run() {
         server_shutdown: None,
         tunnel_child: None,
         permissions: Arc::new(RwLock::new(default_permissions())),
+        oauth_client_id: "spark-bridge-gemini".to_string(),
+        oauth_client_secret: generate_token(),
     })));
 
     tauri::Builder::default()
