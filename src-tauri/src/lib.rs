@@ -31,6 +31,7 @@ struct BridgeInner {
     permissions: Arc<RwLock<BTreeMap<String, bool>>>,
     oauth_client_id: String,
     oauth_client_secret: String,
+    oauth_redirect_uri: String,
 }
 
 struct AppState(Arc<Mutex<BridgeInner>>);
@@ -47,6 +48,7 @@ pub struct BridgeStatus {
     pub ngrok_domain: String,
     pub oauth_client_id: String,
     pub oauth_client_secret: String,
+    pub oauth_redirect_uri: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -136,6 +138,29 @@ async fn set_permissions(
     Ok(normalized)
 }
 
+#[tauri::command]
+async fn set_oauth_redirect_uri(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    redirect_uri: String,
+) -> Result<BridgeStatus, String> {
+    let redirect_uri = redirect_uri.trim().to_string();
+    if !redirect_uri.is_empty() && !(redirect_uri.starts_with("https://") || redirect_uri.starts_with("http://localhost")) {
+        return Err("A URI de redirecionamento deve começar com https:// ou http://localhost".into());
+    }
+    let mut inner = state.0.lock().await;
+    inner.oauth_redirect_uri = redirect_uri.clone();
+    let cfg = TunnelConfigFile {
+        provider: inner.tunnel_provider.clone(),
+        authtoken: inner.ngrok_authtoken.clone(),
+        domain: inner.ngrok_domain.clone(),
+        oauth_redirect_uri: inner.oauth_redirect_uri.clone(),
+    };
+    save_tunnel_config(&app, &cfg)?;
+    server::configure_oauth(inner.oauth_client_id.clone(), inner.oauth_client_secret.clone(), redirect_uri);
+    Ok(snapshot(&inner).await)
+}
+
 fn generate_token() -> String {
     let mut rng = rand::thread_rng();
     let chars: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -159,6 +184,7 @@ async fn snapshot(inner: &BridgeInner) -> BridgeStatus {
         ngrok_domain: inner.ngrok_domain.clone(),
         oauth_client_id: inner.oauth_client_id.clone(),
         oauth_client_secret: inner.oauth_client_secret.clone(),
+        oauth_redirect_uri: inner.oauth_redirect_uri.clone(),
     }
 }
 
@@ -168,6 +194,8 @@ struct TunnelConfigFile {
     provider: String,
     authtoken: String,
     domain: String,
+    #[serde(default)]
+    oauth_redirect_uri: String,
 }
 
 fn tunnel_config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -231,14 +259,15 @@ async fn set_tunnel_config(
     } else {
         "cloudflare".to_string()
     };
+    let mut inner = state.0.lock().await;
     let cfg = TunnelConfigFile {
         provider: provider.clone(),
         authtoken: authtoken.trim().to_string(),
         domain: domain.trim().to_string(),
+        oauth_redirect_uri: inner.oauth_redirect_uri.clone(),
     };
     save_tunnel_config(&app, &cfg)?;
 
-    let mut inner = state.0.lock().await;
     inner.tunnel_provider = cfg.provider;
     inner.ngrok_authtoken = cfg.authtoken;
     inner.ngrok_domain = cfg.domain;
@@ -381,7 +410,7 @@ async fn start_bridge(
     state: State<'_, AppState>,
 ) -> Result<BridgeStatus, String> {
     let port: u16 = 4891;
-    let (token_arc, provider, ngrok_authtoken, ngrok_domain, permissions, oauth_client_id, oauth_client_secret) = {
+    let (token_arc, provider, ngrok_authtoken, ngrok_domain, permissions, oauth_client_id, oauth_client_secret, oauth_redirect_uri) = {
         let inner = state.0.lock().await;
         if inner.running {
             return Ok(snapshot(&inner).await);
@@ -394,13 +423,14 @@ async fn start_bridge(
             inner.permissions.clone(),
             inner.oauth_client_id.clone(),
             inner.oauth_client_secret.clone(),
+            inner.oauth_redirect_uri.clone(),
         )
     };
 
     let (tx, rx) = oneshot::channel::<()>();
     let server_app = app.clone();
     tokio::spawn(async move {
-        if let Err(e) = server::start_http_server(port, token_arc, rx, Some(server_app), permissions, oauth_client_id, oauth_client_secret).await {
+        if let Err(e) = server::start_http_server(port, token_arc, rx, Some(server_app), permissions, oauth_client_id, oauth_client_secret, oauth_redirect_uri).await {
             eprintln!("HTTP server error: {}", e);
         }
     });
@@ -484,6 +514,7 @@ pub fn run() {
         tunnel_provider: "cloudflare".to_string(),
         ngrok_authtoken: String::new(),
         ngrok_domain: String::new(),
+        oauth_redirect_uri: String::new(),
         server_shutdown: None,
         tunnel_child: None,
         permissions: Arc::new(RwLock::new(default_permissions())),
@@ -506,6 +537,7 @@ pub fn run() {
                     inner.tunnel_provider = cfg.provider;
                     inner.ngrok_authtoken = cfg.authtoken;
                     inner.ngrok_domain = cfg.domain;
+                    inner.oauth_redirect_uri = cfg.oauth_redirect_uri;
                 });
             }
 
@@ -562,6 +594,7 @@ pub fn run() {
             check_components,
             set_background_mode,
             set_tunnel_config,
+            set_oauth_redirect_uri,
             regenerate_token,
             test_connection,
             get_autostart,

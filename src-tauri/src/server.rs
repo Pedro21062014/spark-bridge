@@ -49,6 +49,7 @@ struct OAuthCode {
 struct OAuthStore {
     client_id: String,
     client_secret: String,
+    redirect_uri: String,
     codes: HashMap<String, OAuthCode>,
     access_tokens: HashMap<String, String>,
 }
@@ -154,9 +155,18 @@ fn oauth_store() -> &'static StdMutex<OAuthStore> {
     OAUTH_STORE.get_or_init(|| StdMutex::new(OAuthStore {
         client_id: "spark-bridge-gemini".to_string(),
         client_secret: String::new(),
+        redirect_uri: String::new(),
         codes: HashMap::new(),
         access_tokens: HashMap::new(),
     }))
+}
+
+pub fn configure_oauth(client_id: String, client_secret: String, redirect_uri: String) {
+    if let Ok(mut store) = oauth_store().lock() {
+        store.client_id = client_id;
+        store.client_secret = client_secret;
+        store.redirect_uri = redirect_uri;
+    }
 }
 
 fn random_oauth_value(prefix: &str) -> String {
@@ -234,6 +244,13 @@ async fn oauth_authorize_submit(Form(params): Form<HashMap<String, String>>) -> 
     if client_id.is_empty() || redirect_uri.is_empty() {
         return (StatusCode::BAD_REQUEST, "client_id e redirect_uri sao obrigatorios").into_response();
     }
+    let (expected_client_id, expected_redirect_uri) = oauth_store().lock().map(|store| (store.client_id.clone(), store.redirect_uri.clone())).unwrap_or_default();
+    if expected_redirect_uri.is_empty() {
+        return (StatusCode::BAD_REQUEST, "Cole e salve no Spark Bridge a URI copiada no Gemini antes de autorizar").into_response();
+    }
+    if client_id != expected_client_id || redirect_uri != expected_redirect_uri {
+        return (StatusCode::BAD_REQUEST, "client_id ou URI de redirecionamento nao correspondem ao cadastro do Spark Bridge").into_response();
+    }
     let code = random_oauth_value("code");
     if let Ok(mut store) = oauth_store().lock() {
         store.codes.insert(code.clone(), OAuthCode {
@@ -249,12 +266,13 @@ async fn oauth_authorize_submit(Form(params): Form<HashMap<String, String>>) -> 
 }
 
 async fn oauth_register(ExtractJson(body): ExtractJson<serde_json::Value>) -> impl IntoResponse {
-    let (client_id, client_secret) = oauth_store().lock().map(|store| (store.client_id.clone(), store.client_secret.clone())).unwrap_or_else(|_| ("spark-bridge-gemini".to_string(), String::new()));
+    let (client_id, client_secret, redirect_uri) = oauth_store().lock().map(|store| (store.client_id.clone(), store.client_secret.clone(), store.redirect_uri.clone())).unwrap_or_else(|_| ("spark-bridge-gemini".to_string(), String::new(), String::new()));
+    let redirect_uris = if redirect_uri.is_empty() { body.get("redirect_uris").cloned().unwrap_or_else(|| serde_json::json!([])) } else { serde_json::json!([redirect_uri]) };
     Json(serde_json::json!({
         "client_id": client_id,
         "client_name": body.get("client_name").and_then(|v| v.as_str()).unwrap_or("MCP client"),
         "client_secret": client_secret,
-        "redirect_uris": body.get("redirect_uris").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "redirect_uris": redirect_uris,
         "token_endpoint_auth_method": "client_secret_post"
     })).into_response()
 }
@@ -2022,15 +2040,13 @@ pub async fn start_http_server(
     permissions: Arc<RwLock<BTreeMap<String, bool>>>,
     oauth_client_id: String,
     oauth_client_secret: String,
+    oauth_redirect_uri: String,
 ) -> Result<(), String> {
     if let Some(app_handle) = app_handle {
         let _ = APP_HANDLE.set(app_handle);
     }
     let _ = PERMISSIONS.set(permissions.clone());
-    if let Ok(mut store) = oauth_store().lock() {
-        store.client_id = oauth_client_id;
-        store.client_secret = oauth_client_secret;
-    }
+    configure_oauth(oauth_client_id, oauth_client_secret, oauth_redirect_uri);
     // Registra o token atual para montar a URL da captura no screen_capture.
     *server_token_slot().lock().unwrap() = Some(token.clone());
     let state = ServerState { token, permissions };
@@ -2162,7 +2178,7 @@ mod tests {
     async fn mcp_streamable_http_smoke() {
         let token = std::sync::Arc::new(tokio::sync::RwLock::new("test-token".to_string()));
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        let server = tokio::spawn(start_http_server(4899, token, rx, None, Arc::new(RwLock::new(BTreeMap::new())), "spark-bridge-gemini".to_string(), "test-oauth-secret".to_string()));
+        let server = tokio::spawn(start_http_server(4899, token, rx, None, Arc::new(RwLock::new(BTreeMap::new())), "spark-bridge-gemini".to_string(), "test-oauth-secret".to_string(), "".to_string()));
 
         let client = reqwest::Client::new();
 

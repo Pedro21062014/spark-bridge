@@ -51,6 +51,7 @@ const oauthClientIdInput = document.getElementById("oauth-client-id");
 const oauthClientSecretInput = document.getElementById("oauth-client-secret");
 const oauthSecretEye = document.getElementById("oauth-secret-eye");
 const oauthRedirectUriInput = document.getElementById("oauth-redirect-uri");
+const saveOauthRedirectBtn = document.getElementById("save-oauth-redirect-btn");
 const copyConfigBtn = document.getElementById("copy-config-btn");
 const providerSelect = document.getElementById("provider-select");
 const providerHint = document.getElementById("provider-hint");
@@ -308,6 +309,9 @@ function updateUI(status) {
   apiTokenInput.value = status.token || "";
   oauthClientIdInput.value = status.oauth_client_id || "";
   oauthClientSecretInput.value = status.oauth_client_secret || "";
+  if (document.activeElement !== oauthRedirectUriInput) {
+    oauthRedirectUriInput.value = status.oauth_redirect_uri || "";
+  }
   bgToggle.checked = status.background_mode;
   testBtn.disabled = !status.running;
 
@@ -447,6 +451,20 @@ oauthSecretEye.addEventListener("click", () => {
 });
 
 clientSelect.addEventListener("change", refreshConfig);
+
+saveOauthRedirectBtn.addEventListener("click", async () => {
+  if (!hasTauri) return;
+  saveOauthRedirectBtn.disabled = true;
+  try {
+    const status = await invoke("set_oauth_redirect_uri", { redirectUri: oauthRedirectUriInput.value });
+    updateUI(status);
+    toast("URI de redirecionamento salva para o OAuth do Gemini.");
+  } catch (err) {
+    toast(`Erro ao salvar a URI: ${err}`);
+  } finally {
+    saveOauthRedirectBtn.disabled = false;
+  }
+});
 
 async function saveTunnelConfig() {
   try {
