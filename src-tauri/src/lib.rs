@@ -404,6 +404,23 @@ async fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
     manager.is_enabled().map_err(|e| e.to_string())
 }
 
+async fn wait_for_http_health(url: &str, attempts: usize, delay_ms: u64) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .map_err(|e| format!("Falha ao preparar verificação HTTP: {}", e))?;
+    let health_url = format!("{}/health", url.trim_end_matches('/'));
+    for _ in 0..attempts {
+        if let Ok(response) = client.get(&health_url).send().await {
+            if response.status().is_success() {
+                return Ok(());
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+    }
+    Err(format!("O endpoint {} não respondeu ao health check", health_url))
+}
+
 #[tauri::command]
 async fn start_bridge(
     app: AppHandle,
@@ -435,12 +452,17 @@ async fn start_bridge(
         }
     });
 
+    if let Err(e) = wait_for_http_health(&format!("http://127.0.0.1:{}", port), 40, 250).await {
+        let _ = tx.send(());
+        return Err(format!("Servidor local não ficou pronto antes do túnel: {}", e));
+    }
+
     let app_data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
-    let (child, public_url) = if provider == "ngrok" {
+    let (mut child, public_url) = if provider == "ngrok" {
         if ngrok_authtoken.trim().is_empty() {
             let _ = tx.send(());
             return Err(
@@ -477,6 +499,12 @@ async fn start_bridge(
             }
         }
     };
+
+    if let Err(e) = wait_for_http_health(&public_url, 30, 500).await {
+        let _ = child.kill().await;
+        let _ = tx.send(());
+        return Err(format!("O túnel publicou a URL, mas ela não está acessível: {}", e));
+    }
 
     let mut inner = state.0.lock().await;
     inner.running = true;

@@ -201,6 +201,15 @@ pub async fn start_ngrok_tunnel(
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
 
     loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            let tail = logs.lock().await.join(" | ");
+            return Err(format!(
+                "O processo ngrok encerrou antes de manter o túnel (status {}). Logs: {}",
+                status,
+                if tail.is_empty() { "(sem logs)".to_string() } else { tail }
+            ));
+        }
+
         if let Ok(resp) = client.get("http://127.0.0.1:4040/api/tunnels").send().await {
             if let Ok(json) = resp.json::<serde_json::Value>().await {
                 if let Some(url) = parse_ngrok_public_url(&json) {
