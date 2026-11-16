@@ -2074,6 +2074,8 @@ pub async fn start_http_server(
 mod tests {
     use super::{downscale_to_max, is_blank_rgb, parse_tsv_words, rgb_to_ascii, start_http_server};
     use image::DynamicImage;
+    use std::{collections::BTreeMap, sync::Arc};
+    use tokio::sync::RwLock;
 
     #[test]
     fn tsv_words_parsing() {
