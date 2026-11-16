@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animação Colorida - Cores do Google</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* Reset básico e configuração de tela cheia sem barras de rolagem */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: transparent;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        /* Canvas ocupa 100% da tela */
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            /* Sem blur pesado no CSS para manter nitidez cristalina e alta resolução */
+        }
+
+        /* Indicador de status fixado no centro superior apenas com o texto */
+        .agent-status-header {
+            position: fixed;
+            top: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: none;
+            padding: 0;
+        }
+
+        .thinking-text {
+            font-size: 15px;
+            font-weight: 500;
+            letter-spacing: 0.2px;
+            line-height: 1;
+            white-space: nowrap;
+
+            background: linear-gradient(
+                90deg,
+                #666666 0%,
+                #ffffff 35%,
+                #666666 55%,
+                #ffffff 75%,
+                #666666 100%
+            );
+
+            background-size: 300% auto;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+
+            animation: shine 12s linear infinite;
+        }
+
+        @keyframes shine {
+            0% {
+                background-position: 200% center;
+            }
+            100% {
+                background-position: -200% center;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Texto superior centralizado -->
+    <header class="agent-status-header">
+        <span class="thinking-text">
+            O Agente está trabalhando
+        </span>
+    </header>
+
+    <canvas id="animationCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('animationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Paleta oficial de cores do Google
+        const colors = [
+            { r: 66,  g: 133, b: 244 }, // Azul Google
+            { r: 234, g: 67,  b: 53  }, // Vermelho Google
+            { r: 251, g: 188, b: 5   }, // Amarelo Google
+            { r: 52,  g: 168, b: 83  }  // Verde Google
+        ];
+
+        let width, height;
+        let time = 0;
+
+        // Ajusta o tamanho do canvas em resolução máxima nativa (HiDPI/4K)
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            width = window.innerWidth || document.documentElement.clientWidth || 0;
+            height = window.innerHeight || document.documentElement.clientHeight || 0;
+
+            if (width <= 0 || height <= 0) return;
+            
+            canvas.width = Math.round(width * dpr);
+            canvas.height = Math.round(height * dpr);
+            
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        /**
+         * Calcula a posição (x, y) exata ao longo do perímetro da tela
+         * incluindo os 4 cantos retos até a quina exata para ficar 100% grudadinho.
+         */
+        function getPointOnPerimeter(t) {
+            const r = Math.max(1, Math.min(width, height) * 0.012); // Garante r > 0 para evitar divisão por zero
+            const straightW = Math.max(0, width - 2 * r);
+            const straightH = Math.max(0, height - 2 * r);
+            const cornerLen = Math.max(0.001, (Math.PI * r) / 2);
+            const totalPerimeter = 2 * straightW + 2 * straightH + 4 * cornerLen;
+
+            // Garante que t fique sempre entre 0 e 1
+            let dist = (((t % 1) + 1) % 1) * totalPerimeter;
+
+            // 1. Borda Superior
+            if (dist < straightW) {
+                return { x: r + dist, y: 0, nx: 0, ny: 1 };
+            }
+            dist -= straightW;
+
+            // 2. Canto Superior Direito
+            if (dist < cornerLen) {
+                const angle = -Math.PI / 2 + (dist / cornerLen) * (Math.PI / 2);
+                return {
+                    x: width - r + Math.cos(angle) * r,
+                    y: r + Math.sin(angle) * r,
+                    nx: -Math.cos(angle),
+                    ny: -Math.sin(angle)
+                };
+            }
+            dist -= cornerLen;
+
+            // 3. Borda Direita
+            if (dist < straightH) {
+                return { x: width, y: r + dist, nx: -1, ny: 0 };
+            }
+            dist -= straightH;
+
+            // 4. Canto Inferior Direito
+            if (dist < cornerLen) {
+                const angle = (dist / cornerLen) * (Math.PI / 2);
+                return {
+                    x: width - r + Math.cos(angle) * r,
+                    y: height - r + Math.sin(angle) * r,
+                    nx: -Math.cos(angle),
+                    ny: -Math.sin(angle)
+                };
+            }
+            dist -= cornerLen;
+
+            // 5. Borda Inferior
+            if (dist < straightW) {
+                return { x: width - r - dist, y: height, nx: 0, ny: -1 };
+            }
+            dist -= straightW;
+
+            // 6. Canto Inferior Esquerdo
+            if (dist < cornerLen) {
+                const angle = Math.PI / 2 + (dist / cornerLen) * (Math.PI / 2);
+                return {
+                    x: r + Math.cos(angle) * r,
+                    y: height - r + Math.sin(angle) * r,
+                    nx: -Math.cos(angle),
+                    ny: -Math.sin(angle)
+                };
+            }
+            dist -= cornerLen;
+
+            // 7. Borda Esquerda
+            if (dist < straightH) {
+                return { x: 0, y: height - r - dist, nx: 1, ny: 0 };
+            }
+            dist -= straightH;
+
+            // 8. Canto Superior Esquerdo
+            const angle = Math.PI + (dist / cornerLen) * (Math.PI / 2);
+            return {
+                x: r + Math.cos(angle) * r,
+                y: r + Math.sin(angle) * r,
+                nx: -Math.cos(angle),
+                ny: -Math.sin(angle)
+            };
+        }
+
+        /**
+         * Interpola suavemente entre as 4 cores do Google ao longo do ciclo
+         */
+        function getSmoothGoogleColor(t) {
+            const normalized = ((t % 1) + 1) % 1;
+            const scaled = normalized * colors.length;
+            const index1 = Math.floor(scaled) % colors.length;
+            const index2 = (index1 + 1) % colors.length;
+            const blend = scaled - Math.floor(scaled);
+
+            // Curva suave (smoothstep) para misturar as cores sem marcas bruscas
+            const smooth = blend * blend * (3 - 2 * blend);
+
+            const c1 = colors[index1];
+            const c2 = colors[index2];
+
+            return {
+                r: Math.round(c1.r + (c2.r - c1.r) * smooth),
+                g: Math.round(c1.g + (c2.g - c1.g) * smooth),
+                b: Math.round(c1.b + (c2.b - c1.b) * smooth)
+            };
+        }
+
+        /**
+         * Desenha uma névoa/fumaça contínua e difusa sem marcas de bolinhas,
+         * abraçando firmemente todas as bordas e os 4 cantos da tela.
+         */
+        function drawSmokeEdge() {
+            if (!width || !height || width <= 0 || height <= 0) return;
+
+            const baseRadius = Math.max(10, Math.max(width, height) * 0.095);
+
+            // Camada 1: Névoa base contínua e larga (elimina qualquer aparência de bolinhas ou linha)
+            const baseSteps = 220;
+            for (let i = 0; i < baseSteps; i++) {
+                const progress = (i / baseSteps) + time * 0.045;
+                const pt = getPointOnPerimeter(progress);
+
+                // Mantém o centro bem rente à própria borda para não invadir o meio da tela
+                const spread = 2 + Math.sin(i * 0.17 + time * 1.1) * 3;
+                const x = pt.x + pt.nx * spread;
+                const y = pt.y + pt.ny * spread;
+
+                const radius = Math.max(1, baseRadius * (0.95 + 0.22 * Math.cos(i * 0.13 - time * 0.9)));
+                if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(radius)) continue;
+
+                const color = getSmoothGoogleColor(progress * 1.25 - time * 0.025);
+
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+                gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, 0.095)`);
+                gradient.addColorStop(0.35, `rgba(${color.r}, ${color.g}, ${color.b}, 0.055)`);
+                gradient.addColorStop(0.7, `rgba(${color.r}, ${color.g}, ${color.b}, 0.018)`);
+                gradient.addColorStop(1, `rgba(${color.r}, ${color.g}, ${color.b}, 0)`);
+
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Camada 2: Volutas orgânicas irregulares (quebra o padrão certinho e cria textura real de fumaça)
+            const wisps = 42;
+            for (let j = 0; j < wisps; j++) {
+                // Velocidades e espaçamentos assimétricos para não parecer enfileirado
+                const speedOffset = (j % 3 === 0 ? 0.055 : j % 3 === 1 ? 0.038 : 0.064);
+                const progress = (j / wisps) + Math.sin(j * 2.3) * 0.04 + time * speedOffset;
+                const pt = getPointOnPerimeter(progress);
+
+                const drift = Math.sin(time * 1.3 + j * 1.7) * 7 + 7;
+                const tangentShift = Math.cos(time * 0.9 + j * 2.1) * 14;
+
+                // Tangente perpendicular à normal da borda
+                const tx = -pt.ny;
+                const ty = pt.nx;
+
+                const x = pt.x + pt.nx * drift + tx * tangentShift;
+                const y = pt.y + pt.ny * drift + ty * tangentShift;
+
+                const radius = Math.max(1, baseRadius * (0.6 + 0.45 * Math.abs(Math.sin(j * 1.9 + time * 0.8))));
+                if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(radius)) continue;
+
+                const color = getSmoothGoogleColor(progress * 1.25 + Math.sin(j) * 0.08 - time * 0.025);
+
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+                gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, 0.12)`);
+                gradient.addColorStop(0.45, `rgba(${color.r}, ${color.g}, ${color.b}, 0.055)`);
+                gradient.addColorStop(0.8, `rgba(${color.r}, ${color.g}, ${color.b}, 0.012)`);
+                gradient.addColorStop(1, `rgba(${color.r}, ${color.g}, ${color.b}, 0)`);
+
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        /**
+         * Loop principal da animação
+         */
+        function animate() {
+            // Garante que as dimensões sejam atualizadas caso a janela tenha iniciado em 0x0
+            if (!width || !height || width <= 0 || height <= 0) {
+                resizeCanvas();
+                requestAnimationFrame(animate);
+                return;
+            }
+
+            // Limpa o frame anterior mantendo o fundo escuro limpo e leve
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.clearRect(0, 0, width, height);
+
+            // Modo 'screen' mistura as cores como luz/fumaça translúcida sem estourar o branco
+            ctx.globalCompositeOperation = 'screen';
+
+            drawSmokeEdge();
+
+            // Avanço suave do tempo
+            time += 0.012;
+
+            requestAnimationFrame(animate);
+        }
+
+        // Inicia a animação ao carregar a janela
+        window.onload = function() {
+            animate();
+        };
+
+        // O overlay e somente apresentacao para a pessoa: nao recebe foco,
+        // nao captura cliques e so aparece durante uma acao do agente.
+        if (window.__TAURI__?.event?.listen) {
+            window.__TAURI__.event.listen('agent-activity', (event) => {
+                const active = Boolean(event.payload?.active);
+                document.documentElement.style.visibility = active ? 'visible' : 'hidden';
+                document.body.style.visibility = active ? 'visible' : 'hidden';
+            });
+        }
+    </script>
+</body>
+</html>

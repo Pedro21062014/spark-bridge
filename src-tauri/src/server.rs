@@ -13,11 +13,22 @@ use image::{DynamicImage, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc, OnceLock};
+use tauri::{AppHandle, Emitter};
 use tokio::process::Command;
 use tokio::sync::{oneshot, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use xcap::Monitor;
+
+static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+static AGENT_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+fn set_agent_activity(active: bool) {
+    AGENT_ACTIVE.store(active, Ordering::SeqCst);
+    if let Some(app) = APP_HANDLE.get() {
+        let _ = app.emit("agent-activity", serde_json::json!({ "active": active }));
+    }
+}
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -453,6 +464,8 @@ fn get_latest_screenshot() -> Option<std::sync::Arc<Vec<u8>>> {
 /// `None` devolve a resolucao original (usado pelo OCR, para as
 /// coordenadas baterem com a tela real).
 fn capture_primary_screen_rgb(max_dim: Option<u32>) -> Result<(Vec<u8>, u32, u32), String> {
+    // A camada e apenas visual para a pessoa; nunca deve entrar em screenshots/OCR.
+    set_agent_activity(false);
     let mut monitors =
         Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
     if monitors.is_empty() {
@@ -656,6 +669,7 @@ async fn get_screen() -> impl IntoResponse {
 }
 
 async fn mouse_move(Json(req): Json<MouseMoveReq>) -> impl IntoResponse {
+    set_agent_activity(true);
     let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
         enigo
@@ -664,6 +678,7 @@ async fn mouse_move(Json(req): Json<MouseMoveReq>) -> impl IntoResponse {
         Ok(())
     })
     .await;
+    set_agent_activity(false);
 
     match res {
         Ok(Ok(())) => (
@@ -694,6 +709,7 @@ async fn mouse_move(Json(req): Json<MouseMoveReq>) -> impl IntoResponse {
 }
 
 async fn mouse_click(Json(req): Json<MouseClickReq>) -> impl IntoResponse {
+    set_agent_activity(true);
     let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
         if let (Some(x), Some(y)) = (req.x, req.y) {
@@ -717,6 +733,7 @@ async fn mouse_click(Json(req): Json<MouseClickReq>) -> impl IntoResponse {
         Ok(())
     })
     .await;
+    set_agent_activity(false);
 
     match res {
         Ok(Ok(())) => (
@@ -747,6 +764,7 @@ async fn mouse_click(Json(req): Json<MouseClickReq>) -> impl IntoResponse {
 }
 
 async fn mouse_scroll(Json(req): Json<MouseScrollReq>) -> impl IntoResponse {
+    set_agent_activity(true);
     let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
         if let Some(dy) = req.delta_y {
@@ -766,6 +784,7 @@ async fn mouse_scroll(Json(req): Json<MouseScrollReq>) -> impl IntoResponse {
         Ok(())
     })
     .await;
+    set_agent_activity(false);
 
     match res {
         Ok(Ok(())) => (
@@ -796,12 +815,14 @@ async fn mouse_scroll(Json(req): Json<MouseScrollReq>) -> impl IntoResponse {
 }
 
 async fn keyboard_type(Json(req): Json<KeyboardTypeReq>) -> impl IntoResponse {
+    set_agent_activity(true);
     let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
         enigo.text(&req.text).map_err(|e| e.to_string())?;
         Ok(())
     })
     .await;
+    set_agent_activity(false);
 
     match res {
         Ok(Ok(())) => (
@@ -857,6 +878,7 @@ fn parse_key(k: &str) -> Option<Key> {
 }
 
 async fn keyboard_key(Json(req): Json<KeyboardKeyReq>) -> impl IntoResponse {
+    set_agent_activity(true);
     let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
         let mut mods = Vec::new();
@@ -878,6 +900,7 @@ async fn keyboard_key(Json(req): Json<KeyboardKeyReq>) -> impl IntoResponse {
         Ok(())
     })
     .await;
+    set_agent_activity(false);
 
     match res {
         Ok(Ok(())) => (
@@ -950,6 +973,7 @@ async fn terminal_exec(Json(req): Json<TerminalExecReq>) -> impl IntoResponse {
 }
 
 async fn mouse_drag(Json(req): Json<MouseDragReq>) -> impl IntoResponse {
+    set_agent_activity(true);
     let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
         let btn = match req.button.as_deref() {
@@ -968,6 +992,7 @@ async fn mouse_drag(Json(req): Json<MouseDragReq>) -> impl IntoResponse {
         Ok(())
     })
     .await;
+    set_agent_activity(false);
 
     match res {
         Ok(Ok(())) => (
@@ -1816,7 +1841,11 @@ pub async fn start_http_server(
     port: u16,
     token: Arc<RwLock<String>>,
     shutdown_rx: oneshot::Receiver<()>,
+    app_handle: Option<AppHandle>,
 ) -> Result<(), String> {
+    if let Some(app_handle) = app_handle {
+        let _ = APP_HANDLE.set(app_handle);
+    }
     // Registra o token atual para montar a URL da captura no screen_capture.
     *server_token_slot().lock().unwrap() = Some(token.clone());
     let state = ServerState { token };
@@ -1941,7 +1970,7 @@ mod tests {
     async fn mcp_streamable_http_smoke() {
         let token = std::sync::Arc::new(tokio::sync::RwLock::new("test-token".to_string()));
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        let server = tokio::spawn(start_http_server(4899, token, rx));
+        let server = tokio::spawn(start_http_server(4899, token, rx, None));
 
         let client = reqwest::Client::new();
 

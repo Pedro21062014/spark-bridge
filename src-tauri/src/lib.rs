@@ -5,6 +5,7 @@ mod tunnel;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::process::Command as StdCommand;
 use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -49,6 +50,52 @@ pub struct TestResult {
     pub latency_ms: u64,
     pub tools_count: Option<usize>,
     pub server_version: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct ComponentStatus {
+    pub name: String,
+    pub installed: bool,
+    pub detail: String,
+    pub install_hint: String,
+}
+
+fn command_available(command: &str) -> bool {
+    let checker = if cfg!(target_os = "windows") { "where" } else { "which" };
+    StdCommand::new(checker)
+        .arg(command)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+fn check_components() -> Vec<ComponentStatus> {
+    let tesseract = command_available("tesseract");
+    vec![
+        ComponentStatus {
+            name: "Captura de tela".into(),
+            installed: true,
+            detail: "Recurso nativo do Spark Bridge".into(),
+            install_hint: String::new(),
+        },
+        ComponentStatus {
+            name: "Controle de mouse e teclado".into(),
+            installed: true,
+            detail: "Recurso nativo do Spark Bridge".into(),
+            install_hint: String::new(),
+        },
+        ComponentStatus {
+            name: "OCR (Tesseract)".into(),
+            installed: tesseract,
+            detail: if tesseract {
+                "tesseract encontrado no PATH".into()
+            } else {
+                "tesseract nao encontrado no PATH".into()
+            },
+            install_hint: "Windows: winget install UB-Mannheim.TesseractOCR | Linux: sudo apt install tesseract-ocr | macOS: brew install tesseract".into(),
+        },
+    ]
 }
 
 fn generate_token() -> String {
@@ -308,8 +355,9 @@ async fn start_bridge(
     };
 
     let (tx, rx) = oneshot::channel::<()>();
+    let server_app = app.clone();
     tokio::spawn(async move {
-        if let Err(e) = server::start_http_server(port, token_arc, rx).await {
+        if let Err(e) = server::start_http_server(port, token_arc, rx, Some(server_app)).await {
             eprintln!("HTTP server error: {}", e);
         }
     });
@@ -463,6 +511,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_status,
+            check_components,
             set_background_mode,
             set_tunnel_config,
             regenerate_token,

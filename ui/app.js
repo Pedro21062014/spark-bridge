@@ -60,10 +60,54 @@ const autostartToggle = document.getElementById("autostart-toggle");
 const errorMsg = document.getElementById("error-msg");
 const toastEl = document.getElementById("toast");
 const tauriMissing = document.getElementById("tauri-missing");
+const checkComponentsBtn = document.getElementById("check-components-btn");
+const componentsResult = document.getElementById("components-result");
 
 let isRunning = false;
 let currentStatus = null;
 let toastTimer = null;
+
+function renderComponents(components) {
+  componentsResult.replaceChildren();
+  for (const component of components) {
+    const item = document.createElement("div");
+    item.className = `component-item ${component.installed ? "ok" : "missing"}`;
+    const icon = document.createElement("span");
+    icon.textContent = component.installed ? "✓" : "!";
+    const content = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = component.name;
+    const detail = document.createElement("small");
+    detail.textContent = component.detail;
+    content.append(title, detail);
+    if (!component.installed && component.install_hint) {
+      const hint = document.createElement("code");
+      hint.textContent = `Como instalar: ${component.install_hint}`;
+      content.append(hint);
+    }
+    item.append(icon, content);
+    componentsResult.append(item);
+  }
+}
+
+async function checkComponents() {
+  if (!hasTauri) {
+    componentsResult.textContent = "Abra o Spark Bridge dentro do aplicativo Tauri para verificar o sistema.";
+    return;
+  }
+  checkComponentsBtn.disabled = true;
+  checkComponentsBtn.textContent = "Verificando...";
+  try {
+    renderComponents(await invoke("check_components"));
+  } catch (err) {
+    componentsResult.textContent = `Não foi possível verificar os componentes: ${err}`;
+  } finally {
+    checkComponentsBtn.disabled = false;
+    checkComponentsBtn.textContent = "Verificar agora";
+  }
+}
+
+checkComponentsBtn.addEventListener("click", checkComponents);
 
 const CLIENT_HINTS = {
   claude: "Cole em claude_desktop_config.json e reinicie o Claude Desktop.",
@@ -233,6 +277,7 @@ async function init() {
     updateUI(status);
     const autostart = await invoke("get_autostart");
     autostartToggle.checked = autostart;
+    await checkComponents();
   } catch (err) {
     console.error("Init error:", err);
   }

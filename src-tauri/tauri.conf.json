@@ -17,6 +17,19 @@
         "minHeight": 620,
         "resizable": true,
         "center": true
+      },
+      {
+        "label": "agent-overlay",
+        "title": "Spark Bridge Agent Activity",
+        "url": "overlay.html",
+        "fullscreen": true,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": false,
+        "resizable": false
       }
     ],
     "security": {
