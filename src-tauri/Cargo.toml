@@ -1,6 +1,6 @@
 [package]
 name = "spark-bridge"
-version = "0.6.0"
+version = "0.7.0"
 description = "Lightweight PC bridge for AI agents (screen, input, terminal) with free public tunnel"
 authors = ["Spark Bridge"]
 edition = "2021"
