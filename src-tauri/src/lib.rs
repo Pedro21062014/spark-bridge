@@ -36,6 +36,12 @@ struct BridgeInner {
 
 struct AppState(Arc<Mutex<BridgeInner>>);
 
+#[tauri::command]
+fn set_animation_enabled(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    server::set_animation_enabled(enabled, &app);
+    Ok(enabled)
+}
+
 #[derive(Serialize, Clone)]
 pub struct BridgeStatus {
     pub running: bool,
@@ -620,6 +626,7 @@ pub fn run() {
             get_permissions,
             set_permissions,
             check_components,
+            set_animation_enabled,
             set_background_mode,
             set_tunnel_config,
             set_oauth_redirect_uri,

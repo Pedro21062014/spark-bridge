@@ -348,8 +348,10 @@
         if (window.__TAURI__?.event?.listen) {
             window.__TAURI__.event.listen('agent-activity', (event) => {
                 const active = Boolean(event.payload?.active);
+                resizeCanvas();
                 document.documentElement.style.visibility = active ? 'visible' : 'hidden';
                 document.body.style.visibility = active ? 'visible' : 'hidden';
+                if (active) requestAnimationFrame(resizeCanvas);
             });
         }
     </script>

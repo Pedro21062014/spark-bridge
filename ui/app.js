@@ -61,6 +61,7 @@ const ngrokDomain = document.getElementById("ngrok-domain");
 const ngrokEye = document.getElementById("ngrok-eye");
 const saveTunnelBtn = document.getElementById("save-tunnel-btn");
 const bgToggle = document.getElementById("bg-toggle");
+const agentAnimationToggle = document.getElementById("toggle-agent-animation");
 const autostartToggle = document.getElementById("autostart-toggle");
 const errorMsg = document.getElementById("error-msg");
 const toastEl = document.getElementById("toast");
@@ -78,6 +79,22 @@ const componentsResult = document.getElementById("components-result");
 let isRunning = false;
 let currentStatus = null;
 let toastTimer = null;
+
+function loadAnimationPreference() {
+  try {
+    return localStorage.getItem("spark_bridge_animation_enabled") !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function saveAnimationPreference(enabled) {
+  try {
+    localStorage.setItem("spark_bridge_animation_enabled", String(enabled));
+  } catch {
+    // Ambiente restrito: o backend ainda recebe a preferência.
+  }
+}
 
 const TOOL_LABELS = {
   screen_capture: "Capturar tela",
@@ -360,6 +377,9 @@ async function init() {
   }
 
   try {
+    const animationEnabled = loadAnimationPreference();
+    agentAnimationToggle.checked = animationEnabled;
+    await invoke("set_animation_enabled", { enabled: animationEnabled });
     const status = await invoke("get_status");
     updateUI(status);
     const autostart = await invoke("get_autostart");
@@ -498,6 +518,20 @@ bgToggle.addEventListener("change", async () => {
     await invoke("set_background_mode", { enabled: bgToggle.checked });
   } catch (err) {
     console.error(err);
+  }
+});
+
+agentAnimationToggle.addEventListener("change", async () => {
+  const enabled = agentAnimationToggle.checked;
+  saveAnimationPreference(enabled);
+  if (!hasTauri) return;
+  try {
+    await invoke("set_animation_enabled", { enabled });
+    toast(enabled ? "Animação do agente ativada." : "Animação do agente desativada.");
+  } catch (err) {
+    agentAnimationToggle.checked = !enabled;
+    saveAnimationPreference(!enabled);
+    toast(`Erro ao configurar a animação: ${err}`);
   }
 });
 

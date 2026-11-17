@@ -24,6 +24,19 @@ use xcap::Monitor;
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static AGENT_ACTIVE: AtomicBool = AtomicBool::new(false);
+static ANIMATION_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn set_animation_enabled(enabled: bool, app: &AppHandle) {
+    ANIMATION_ENABLED.store(enabled, Ordering::SeqCst);
+    if let Some(overlay) = app.get_webview_window("agent-overlay") {
+        if enabled && AGENT_ACTIVE.load(Ordering::SeqCst) {
+            let _ = overlay.show();
+        } else if !enabled {
+            let _ = overlay.hide();
+        }
+        let _ = overlay.set_ignore_cursor_events(true);
+    }
+}
 
 fn set_agent_activity(active: bool) {
     AGENT_ACTIVE.store(active, Ordering::SeqCst);
@@ -32,7 +45,7 @@ fn set_agent_activity(active: bool) {
             // A janela começa hidden no tauri.conf.json; alterar apenas o CSS
             // do documento não a torna visível no desktop. O overlay também
             // nunca deve bloquear os cliques da pessoa ou do agente.
-            if active {
+            if active && ANIMATION_ENABLED.load(Ordering::SeqCst) {
                 if let Err(error) = overlay.show() {
                     eprintln!("Nao foi possivel mostrar o overlay do agente: {}", error);
                 }
@@ -680,16 +693,45 @@ fn get_latest_screenshot() -> Option<std::sync::Arc<Vec<u8>>> {
     latest_screenshot_slot().lock().unwrap().clone()
 }
 
+fn hide_overlay_for_capture() -> bool {
+    let was_active = AGENT_ACTIVE.load(Ordering::SeqCst)
+        && ANIMATION_ENABLED.load(Ordering::SeqCst);
+    if let Some(app) = APP_HANDLE.get() {
+        if let Some(overlay) = app.get_webview_window("agent-overlay") {
+            let _ = overlay.hide();
+        }
+    }
+    was_active
+}
+
+fn restore_overlay_after_capture(was_active: bool) {
+    if !was_active || !ANIMATION_ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
+    if let Some(app) = APP_HANDLE.get() {
+        if let Some(overlay) = app.get_webview_window("agent-overlay") {
+            let _ = overlay.show();
+            let _ = overlay.set_ignore_cursor_events(true);
+        }
+    }
+}
+
 /// Captura a tela principal e devolve (bytes RGB, largura, altura).
 /// `max_dim = Some(n)` reduz para no maximo n px no maior lado;
 /// `None` devolve a resolucao original (usado pelo OCR, para as
 /// coordenadas baterem com a tela real).
 fn capture_primary_screen_rgb(max_dim: Option<u32>) -> Result<(Vec<u8>, u32, u32), String> {
     // A camada e apenas visual para a pessoa; nunca deve entrar em screenshots/OCR.
-    set_agent_activity(false);
-    let mut monitors =
-        Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
+    let overlay_was_active = hide_overlay_for_capture();
+    let mut monitors = match Monitor::all() {
+        Ok(monitors) => monitors,
+        Err(error) => {
+            restore_overlay_after_capture(overlay_was_active);
+            return Err(format!("Failed to list monitors: {}", error));
+        }
+    };
     if monitors.is_empty() {
+        restore_overlay_after_capture(overlay_was_active);
         return Err("Nenhum monitor encontrado".to_string());
     }
     let primary_idx = monitors
@@ -731,6 +773,7 @@ fn capture_primary_screen_rgb(max_dim: Option<u32>) -> Result<(Vec<u8>, u32, u32
                     }
                     None => (w, h, rgb.into_raw()),
                 };
+                restore_overlay_after_capture(overlay_was_active);
                 return Ok((out_raw, out_w, out_h));
             }
             Err(e) => {
@@ -739,6 +782,7 @@ fn capture_primary_screen_rgb(max_dim: Option<u32>) -> Result<(Vec<u8>, u32, u32
         }
     }
 
+    restore_overlay_after_capture(overlay_was_active);
     Err(format!(
         "Falha ao capturar a tela apos 3 tentativas ({}). Verifique se a tela esta ligada/desbloqueada e, no Linux com Wayland, se a permissao de captura de tela foi concedida ao Spark Bridge.",
         last_err
