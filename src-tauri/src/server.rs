@@ -28,6 +28,17 @@ static AGENT_ACTIVE: AtomicBool = AtomicBool::new(false);
 fn set_agent_activity(active: bool) {
     AGENT_ACTIVE.store(active, Ordering::SeqCst);
     if let Some(app) = APP_HANDLE.get() {
+        if let Some(overlay) = app.get_webview_window("agent-overlay") {
+            // A janela começa hidden no tauri.conf.json; alterar apenas o CSS
+            // do documento não a torna visível no desktop. O overlay também
+            // nunca deve bloquear os cliques da pessoa ou do agente.
+            if active {
+                let _ = overlay.show();
+            } else {
+                let _ = overlay.hide();
+            }
+            let _ = overlay.set_ignore_cursor_events(true);
+        }
         let _ = app.emit("agent-activity", serde_json::json!({ "active": active }));
     }
 }
