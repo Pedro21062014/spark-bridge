@@ -380,8 +380,8 @@ As releases são criadas pelo workflow **Build & Release Spark Bridge** (`.githu
 # 2. Commit e push na main
 git push origin main
 # 3. Crie e envie a tag
-git tag v0.17.0
-git push origin v0.17.0
+git tag v0.18.0
+git push origin v0.18.0
 ```
 
 O workflow compila para Linux, Windows e macOS e publica os instaladores na aba Releases. Também é possível rodar manualmente em **Actions → Build & Release Spark Bridge → Run workflow** informando a tag.
