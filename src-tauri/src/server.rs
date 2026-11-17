@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 use std::process::Stdio;
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex as StdMutex, OnceLock};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::process::Command;
 use tokio::sync::{oneshot, RwLock};
 use sha2::{Digest, Sha256};
