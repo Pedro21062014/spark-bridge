@@ -1,274 +1,1791 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Spark Bridge</title>
-  <link rel="stylesheet" href="styles.css" />
+  <title>Spark Bridge · MCP &amp; AI Desktop Bridge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            border: 'hsl(var(--border))',
+            input: 'hsl(var(--input))',
+            ring: 'hsl(var(--ring))',
+            background: 'hsl(var(--background))',
+            foreground: 'hsl(var(--foreground))',
+            primary: {
+              DEFAULT: 'hsl(var(--primary))',
+              foreground: 'hsl(var(--primary-foreground))',
+            },
+            secondary: {
+              DEFAULT: 'hsl(var(--secondary))',
+              foreground: 'hsl(var(--secondary-foreground))',
+            },
+            destructive: {
+              DEFAULT: 'hsl(var(--destructive))',
+              foreground: 'hsl(var(--destructive-foreground))',
+            },
+            muted: {
+              DEFAULT: 'hsl(var(--muted))',
+              foreground: 'hsl(var(--muted-foreground))',
+            },
+            accent: {
+              DEFAULT: 'hsl(var(--accent))',
+              foreground: 'hsl(var(--accent-foreground))',
+            },
+            card: {
+              DEFAULT: 'hsl(var(--card))',
+              foreground: 'hsl(var(--card-foreground))',
+            },
+          },
+          borderRadius: {
+            lg: 'var(--radius)',
+            md: 'calc(var(--radius) - 2px)',
+            sm: 'calc(var(--radius) - 4px)',
+          },
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Design Tokens idênticos ao shadcn/ui (Zinc + Indigo Accent) */
+    :root {
+      --background: 0 0% 98%;
+      --foreground: 240 10% 3.9%;
+      --card: 0 0% 100%;
+      --card-foreground: 240 10% 3.9%;
+      --primary: 243 75% 59%;
+      --primary-foreground: 0 0% 100%;
+      --secondary: 240 4.8% 95.9%;
+      --secondary-foreground: 240 5.9% 10%;
+      --muted: 240 4.8% 95.9%;
+      --muted-foreground: 240 3.8% 46.1%;
+      --accent: 240 4.8% 95.9%;
+      --accent-foreground: 240 5.9% 10%;
+      --destructive: 0 84.2% 60.2%;
+      --destructive-foreground: 0 0% 98%;
+      --border: 240 5.9% 90%;
+      --input: 240 5.9% 90%;
+      --ring: 243 75% 59%;
+      --radius: 0.65rem;
+    }
+
+    .dark {
+      --background: 240 10% 3.9%;
+      --foreground: 0 0% 98%;
+      --card: 240 10% 5.2%;
+      --card-foreground: 0 0% 98%;
+      --primary: 239 84% 67%;
+      --primary-foreground: 0 0% 100%;
+      --secondary: 240 3.7% 13%;
+      --secondary-foreground: 0 0% 98%;
+      --muted: 240 3.7% 12%;
+      --muted-foreground: 240 5% 64.9%;
+      --accent: 240 3.7% 14%;
+      --accent-foreground: 0 0% 98%;
+      --destructive: 0 72% 51%;
+      --destructive-foreground: 0 0% 98%;
+      --border: 240 3.7% 17%;
+      --input: 240 3.7% 17%;
+      --ring: 239 84% 67%;
+    }
+
+    @layer base {
+      *, ::before, ::after {
+        border-color: hsl(var(--border));
+      }
+    }
+
+    body {
+      background-color: hsl(var(--background));
+      color: hsl(var(--foreground));
+      font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Padrão sutil de grade estilo Vercel/shadcn */
+    .bg-grid-pattern {
+      background-image: radial-gradient(hsl(var(--border) / 0.55) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    /* shadcn Switch Component */
+    .shadcn-switch {
+      position: relative;
+      display: inline-flex;
+      height: 20px;
+      width: 36px;
+      flex-shrink: 0;
+      cursor: pointer;
+      align-items: center;
+      border-radius: 9999px;
+      border: 2px solid transparent;
+      background-color: hsl(var(--input));
+      transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .shadcn-switch[data-state="checked"] {
+      background-color: hsl(var(--primary));
+    }
+
+    .shadcn-switch-thumb {
+      pointer-events: none;
+      display: block;
+      height: 16px;
+      width: 16px;
+      border-radius: 9999px;
+      background-color: hsl(var(--background));
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      transform: translateX(0px);
+    }
+
+    .dark .shadcn-switch-thumb {
+      background-color: #ffffff;
+    }
+
+    .shadcn-switch[data-state="checked"] .shadcn-switch-thumb {
+      transform: translateX(16px);
+    }
+
+    /* Scrollbar refinada */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: hsl(var(--border));
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: hsl(var(--muted-foreground) / 0.5);
+    }
+
+    /* Animações suaves de entrada */
+    @keyframes fadeInScale {
+      from { opacity: 0; transform: scale(0.97) translateY(4px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .animate-in {
+      animation: fadeInScale 160ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes sonnerSlide {
+      from { opacity: 0; transform: translateY(12px) scale(0.96); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .sonner-toast {
+      animation: sonnerSlide 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+  </style>
 </head>
-<body>
-  <div class="bg-glow"></div>
-  <div class="container">
-    <header class="header">
-      <div class="brand">
-        <div class="logo"><img src="data:image/png;base64,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" alt="Spark Bridge" /></div>
+<body class="min-h-screen bg-grid-pattern selection:bg-primary/20 selection:text-primary">
+
+  <!-- Top Navbar Sticky estilo shadcn -->
+  <div class="sticky top-0 z-30 w-full border-b bg-background/80 backdrop-blur-md">
+    <div class="mx-auto flex h-14 max-w-2xl items-center justify-between px-4">
+      <!-- Brand -->
+      <div class="flex items-center gap-3">
+        <div class="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-primary/10 text-primary shadow-sm">
+          <img
+            src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAAmE0lEQVR42u2de5BdV3Xmv7X3uc9+qdVqPS1ZfgiIbMs2xhjs2G4MmcCkkknItCFFCsJMKjOVYjKTDI88aSmvqUwSkpkQKklVMiSTmgSpwgTyADJgtTE2wcHYxpZsbMCWJVtSt1r9vq9z9l7zxzn30a3b6u7bt1/y93Nd69V9+55z9vr22muvtTZACCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCGEEEIIIYQQQgghhBBCCCHk1c7/B/F1XOaji1hTAAAAAElFTkSuQmCC"
+            alt="Spark Bridge"
+            onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');"
+            class="h-full w-full object-cover"
+          />
+          <svg class="hidden h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <div class="flex flex-col">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold tracking-tight">Spark Bridge</span>
+            <span class="inline-flex items-center rounded-md border bg-secondary px-1.5 py-0.5 font-mono text-[10px] font-medium text-secondary-foreground">
+              v0.17.0
+            </span>
+          </div>
+          <span class="text-[11px] text-muted-foreground hidden sm:inline">MCP &amp; Desktop Automation Bridge</span>
+        </div>
+      </div>
+
+      <!-- Right Controls -->
+      <div class="flex items-center gap-2">
+        <!-- Theme Toggle -->
+        <button
+          id="theme-toggle"
+          type="button"
+          class="inline-flex h-8 w-8 items-center justify-center rounded-md border bg-card text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title="Alternar tema"
+          aria-label="Alternar tema"
+        >
+          <svg id="icon-sun" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+          <svg id="icon-moon" class="hidden h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+
+        <!-- Status Pill Badge -->
+        <div
+          id="status-badge"
+          class="inline-flex h-8 items-center gap-2 rounded-full border bg-card px-3 text-xs font-medium text-muted-foreground shadow-sm transition-all"
+        >
+          <span class="relative flex h-2 w-2">
+            <span id="status-ping" class="hidden absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+            <span id="status-dot" class="relative inline-flex h-2 w-2 rounded-full bg-zinc-500"></span>
+          </span>
+          <span id="status-text">Offline</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <div class="mx-auto max-w-2xl px-4 py-6 space-y-5">
+
+    <!-- Web Preview Callout (Shadcn Alert) -->
+    <div
+      id="tauri-missing"
+      role="alert"
+      class="hidden relative w-full rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-600 dark:text-amber-400 flex items-center justify-between gap-3"
+    >
+      <div class="flex items-center gap-2.5">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
         <div>
-          <h1>Spark Bridge <span class="version-badge">v0.17.0</span></h1>
-          <p class="subtitle">Ponte PC para Agentes de IA &amp; MCP</p>
+          <span class="font-semibold">Ambiente Web Preview:</span>
+          <span>Backend Tauri simulado localmente. Todas as interações funcionam para teste de UI.</span>
         </div>
       </div>
-      <div class="header-actions">
-        <button id="theme-toggle" class="btn-copy" title="Alternar tema claro/escuro">☀️</button>
-        <div id="status-badge" class="badge offline">
-          <span class="dot"></span>
-          <span id="status-text">Desconectado</span>
-        </div>
-      </div>
-    </header>
+      <span class="shrink-0 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px]">MOCK</span>
+    </div>
 
-    <nav class="tab-nav" role="tablist" aria-label="Seções do Spark Bridge">
-      <button id="connection-tab" class="tab-btn active" role="tab" aria-selected="true">Conexão</button>
-      <button id="security-tab" class="tab-btn" role="tab" aria-selected="false">Segurança</button>
-    </nav>
-
-    <section id="security-panel" class="card security-panel hidden" role="tabpanel">
-      <div>
-        <h2>Gerenciamento de segurança</h2>
-        <p class="hint">Escolha exatamente quais ferramentas o agente pode usar. Alterações valem para MCP e bloqueiam a ferramenta no servidor.</p>
-      </div>
-      <div class="security-actions">
-        <button id="enable-all-btn" class="btn-copy">Permitir tudo</button>
-        <button id="disable-all-btn" class="btn-copy">Bloquear tudo</button>
-        <button id="save-permissions-btn" class="btn-secondary">Salvar permissões</button>
-      </div>
-      <div id="permissions-list" class="permissions-list"></div>
-      <div class="oauth-note">
-        <strong>Gemini / OAuth</strong>
-        <p>O servidor agora publica descoberta OAuth, PKCE e uma tela de consentimento. Ao adicionar a URL MCP no Gemini, autorize o acesso quando a página do Spark Bridge abrir.</p>
-        <small>Não compartilhe a URL pública nem os tokens. Para revogar acessos OAuth, clique em “Parar Conexão” ou gere um novo token.</small>
-      </div>
-    </section>
-
-    <p id="tauri-missing" class="notice hidden connection-view">
-      ⚠️ Esta página precisa ser aberta dentro do aplicativo <strong>Spark Bridge</strong> (Tauri).
-      No navegador, apenas a pré-visualização do layout está disponível.
-    </p>
-
-    <main class="card main-card connection-view">
-      <button id="toggle-btn" class="btn-primary">
-        <span id="btn-text">Iniciar Conexão</span>
+    <!-- Shadcn TabsList -->
+    <div class="grid w-full grid-cols-3 rounded-lg bg-muted p-1 text-muted-foreground border" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        data-tab="connection"
+        aria-selected="true"
+        class="nav-tab inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring bg-background text-foreground shadow-sm"
+      >
+        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <span>Conexão</span>
       </button>
-      <p id="error-msg" class="error hidden"></p>
 
-      <div class="row-between">
-        <button id="test-btn" class="btn-secondary" disabled>🔍 Testar conexão MCP</button>
-        <span id="test-hint" class="hint">Verifica o handshake MCP local</span>
-      </div>
-      <div id="test-result" class="result-box hidden"></div>
+      <button
+        type="button"
+        role="tab"
+        data-tab="clients"
+        aria-selected="false"
+        class="nav-tab inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:text-foreground"
+      >
+        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <span>Clientes &amp; API</span>
+      </button>
 
-      <div class="field-group highlight-group">
-        <label>URL Completa para MCP / Agente (Link + Token)</label>
-        <div class="copy-row">
-          <input id="mcp-url" type="text" readonly placeholder="Clique em Iniciar para gerar o link MCP..." />
-          <button class="btn-copy btn-copy-accent" data-target="mcp-url">Copiar</button>
-        </div>
-        <small class="hint">Cole esta URL no seu cliente MCP (Claude, Cursor, VS Code, Gemini...).</small>
-      </div>
+      <button
+        type="button"
+        role="tab"
+        data-tab="security"
+        aria-selected="false"
+        class="nav-tab inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:text-foreground"
+      >
+        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>Segurança</span>
+        <span id="perm-counter-badge" class="ml-0.5 rounded-full bg-primary/15 px-1.5 py-0.2 font-mono text-[10px] font-semibold text-primary">14/15</span>
+      </button>
+    </div>
 
-      <div class="divider"></div>
+    <!-- ==================== TAB 1: CONEXÃO ==================== -->
+    <div id="view-connection" class="view-section space-y-5 animate-in">
 
-      <div class="field-group">
-        <label>Header de Autenticação (Authorization)</label>
-        <div class="copy-row">
-          <input id="auth-header" type="text" readonly placeholder="Bearer sb_..." />
-          <button class="btn-copy" data-target="auth-header">Copiar</button>
-        </div>
-      </div>
-
-      <div class="field-group">
-        <label>Link Público (Cloudflare Tunnel)</label>
-        <div class="copy-row">
-          <input id="public-url" type="text" readonly placeholder="Aguardando..." />
-          <button class="btn-copy" data-target="public-url">Copiar</button>
-        </div>
-      </div>
-
-      <div class="field-group">
-        <label>URL Local (neste PC)</label>
-        <div class="copy-row">
-          <input id="local-url" type="text" readonly value="http://127.0.0.1:4891/mcp" />
-          <button class="btn-copy" data-target="local-url">Copiar</button>
-        </div>
-      </div>
-
-      <div class="field-group">
-        <label>Token de Segurança</label>
-        <div class="copy-row">
-          <input id="api-token" type="password" readonly autocomplete="off" />
-          <button id="token-eye" class="btn-copy" title="Mostrar / ocultar token">👁️</button>
-          <button class="btn-copy" data-target="api-token">Copiar</button>
-          <button id="regenerate-btn" class="btn-copy" title="Gerar novo token">↻ Novo</button>
-        </div>
-      </div>
-    </main>
-
-    <section class="card components-card connection-view">
-      <div class="row-between">
-        <div>
-          <h2>Componentes do agente</h2>
-          <small class="hint">Verifica captura, controle e OCR antes de usar.</small>
-        </div>
-        <button id="check-components-btn" class="btn-secondary">Verificar agora</button>
-      </div>
-      <div id="components-result" class="components-result" aria-live="polite">
-        Clique em “Verificar agora” para diagnosticar os componentes.
-      </div>
-    </section>
-
-    <section class="card tunnel-card connection-view">
-      <div class="row-between">
-        <h2>Túnel (URL pública)</h2>
-        <select id="provider-select" class="select">
-          <option value="cloudflare">Cloudflare (grátis, URL aleatória)</option>
-          <option value="ngrok">ngrok (domínio fixo)</option>
-        </select>
-      </div>
-
-      <div id="ngrok-fields" class="ngrok-fields hidden">
-        <div class="field-group">
-          <label>Authtoken do ngrok</label>
-          <div class="copy-row">
-            <input id="ngrok-token" type="password" autocomplete="off" placeholder="Cole seu authtoken do ngrok..." />
-            <button id="ngrok-eye" class="btn-copy" title="Mostrar / ocultar">👁️</button>
+      <!-- Quick Telemetry Row (Shadcn Mini Metric Cards) -->
+      <div class="grid grid-cols-3 gap-3">
+        <div class="rounded-lg border bg-card p-3 shadow-sm">
+          <div class="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+            <span>Porta Local</span>
+            <svg class="h-3.5 w-3.5 text-muted-foreground/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
           </div>
-          <small class="hint">Pegue em dashboard.ngrok.com → Your Authtoken. Fica salvo só neste PC.</small>
+          <div class="mt-1 font-mono text-sm font-semibold">127.0.0.1:4891</div>
         </div>
 
-        <div class="field-group">
-          <label>Domínio estático (opcional — URL fixa)</label>
-          <div class="copy-row">
-            <input id="ngrok-domain" type="text" autocomplete="off" placeholder="ex.: meu-bridge.ngrok-free.app" />
+        <div class="rounded-lg border bg-card p-3 shadow-sm">
+          <div class="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+            <span>Provedor Ativo</span>
+            <svg class="h-3.5 w-3.5 text-muted-foreground/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
           </div>
-          <small class="hint">Reclame seu domínio grátis em dashboard.ngrok.com → Domains. Deixe vazio para URL aleatória.</small>
+          <div id="metric-provider" class="mt-1 text-sm font-semibold capitalize">Cloudflare</div>
         </div>
 
-        <div class="row-between">
-          <small class="hint">Salve antes de iniciar a conexão.</small>
-          <button id="save-tunnel-btn" class="btn-secondary">Salvar túnel</button>
+        <div class="rounded-lg border bg-card p-3 shadow-sm">
+          <div class="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+            <span>Latência MCP</span>
+            <svg class="h-3.5 w-3.5 text-muted-foreground/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <div id="metric-latency" class="mt-1 font-mono text-sm font-semibold text-muted-foreground">—</div>
         </div>
       </div>
 
-      <small id="provider-hint" class="hint">Cloudflare Quick Tunnel: sem conta, URL muda a cada início.</small>
-    </section>
+      <!-- Main Connection Card -->
+      <main class="rounded-xl border bg-card text-card-foreground shadow-sm">
+        <div class="p-5 space-y-5">
+          <!-- Primary Action Bar -->
+          <div class="flex flex-col sm:flex-row gap-2.5">
+            <button
+              id="toggle-btn"
+              type="button"
+              class="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-all hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+              <span id="btn-text">Iniciar Conexão</span>
+            </button>
 
-    <section class="card config-card connection-view">
-      <div class="row-between">
-        <h2>Configuração do cliente MCP</h2>
-        <select id="client-select" class="select">
-          <option value="claude">Claude Desktop</option>
-          <option value="cursor">Cursor</option>
-          <option value="vscode">VS Code</option>
-          <option value="gemini">Gemini CLI</option>
-          <option value="generic">Genérico (URL + Header)</option>
-        </select>
-      </div>
-      <textarea id="config-output" class="config-output" readonly rows="8" spellcheck="false"></textarea>
-      <div class="oauth-credentials">
-        <div class="oauth-credentials-title">Credenciais para o conector OAuth do Gemini</div>
-        <div class="field-group">
-          <label>ID do cliente OAuth</label>
-          <div class="copy-row"><input id="oauth-client-id" type="text" readonly /><button class="btn-copy" data-target="oauth-client-id">Copiar</button></div>
-        </div>
-        <div class="field-group">
-          <label>Chave secreta do cliente OAuth</label>
-          <div class="copy-row"><input id="oauth-client-secret" type="password" readonly /><button id="oauth-secret-eye" class="btn-copy" title="Mostrar / ocultar">👁️</button><button class="btn-copy" data-target="oauth-client-secret">Copiar</button></div>
-        </div>
-        <div class="field-group">
-          <label>URI de redirecionamento do Gemini</label>
-          <div class="copy-row"><input id="oauth-redirect-uri" type="url" placeholder="Cole aqui a URI copiada no Gemini" /><button id="save-oauth-redirect-btn" class="btn-secondary">Salvar URI</button></div>
-          <small class="hint">No Gemini, clique em “Copiar URI de redirecionamento”, cole aqui e clique em <strong>Salvar URI</strong> antes de conectar.</small>
-        </div>
-      </div>
-      <div class="row-between">
-        <small id="config-hint" class="hint"></small>
-        <button id="copy-config-btn" class="btn-copy">Copiar configuração</button>
-      </div>
-    </section>
+            <button
+              id="test-btn"
+              type="button"
+              disabled
+              title="Executar handshake MCP"
+              class="inline-flex h-10 items-center justify-center gap-2 rounded-md border bg-background px-4 py-2 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+            >
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              <span>Testar Handshake</span>
+            </button>
+          </div>
 
-    <section class="card settings connection-view">
-      <h2>Configurações</h2>
-      <label class="toggle-row">
+          <!-- Feedback Alerts -->
+          <div id="error-msg" class="hidden rounded-md border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-xs font-medium text-destructive"></div>
+          <div id="test-result" class="hidden rounded-md border px-3.5 py-2.5 text-xs font-medium"></div>
+
+          <!-- Recommended MCP Endpoint -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <label for="mcp-url" class="text-xs font-semibold leading-none text-foreground flex items-center gap-1.5">
+                URL Completa para MCP
+                <span class="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                  Recomendado
+                </span>
+              </label>
+              <span class="text-[11px] text-muted-foreground">Link + Token embutido</span>
+            </div>
+
+            <div class="flex rounded-md shadow-sm ring-1 ring-inset ring-primary/30 focus-within:ring-2 focus-within:ring-ring bg-background">
+              <input
+                id="mcp-url"
+                type="text"
+                readonly
+                placeholder="Inicie a conexão para gerar o endpoint..."
+                class="block w-full flex-1 border-0 bg-transparent py-2 pl-3 pr-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+              />
+              <div class="flex items-center pr-1.5">
+                <button
+                  type="button"
+                  data-target="mcp-url"
+                  class="btn-copy inline-flex h-7 items-center gap-1.5 rounded bg-primary px-2.5 text-[11px] font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+                >
+                  <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                  <span>Copiar</span>
+                </button>
+              </div>
+            </div>
+            <p class="text-[11px] text-muted-foreground">
+              Cole diretamente no seu cliente MCP (Claude, Cursor, VS Code ou Gemini).
+            </p>
+          </div>
+
+          <div class="h-[1px] w-full bg-border"></div>
+
+          <!-- Secondary Connection Fields -->
+          <div class="grid gap-4">
+            <!-- Authorization Header -->
+            <div class="space-y-1.5">
+              <label for="auth-header" class="text-xs font-medium text-muted-foreground">Header de Autenticação (Authorization)</label>
+              <div class="flex rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring">
+                <input
+                  id="auth-header"
+                  type="text"
+                  readonly
+                  placeholder="Bearer sb_..."
+                  class="block w-full flex-1 border-0 bg-transparent py-1.5 pl-3 pr-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                />
+                <div class="flex items-center pr-1">
+                  <button
+                    type="button"
+                    data-target="auth-header"
+                    class="btn-copy inline-flex h-7 items-center gap-1 rounded px-2 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                  >
+                    Copiar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Public & Local URLs side-by-side on desktop -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="space-y-1.5">
+                <label for="public-url" class="text-xs font-medium text-muted-foreground">Link Público (Túnel)</label>
+                <div class="flex rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring">
+                  <input
+                    id="public-url"
+                    type="text"
+                    readonly
+                    placeholder="Aguardando túnel..."
+                    class="block w-full flex-1 border-0 bg-transparent py-1.5 pl-3 pr-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  />
+                  <div class="flex items-center pr-1">
+                    <button
+                      type="button"
+                      data-target="public-url"
+                      class="btn-copy inline-flex h-7 items-center rounded px-2 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                    >
+                      Copiar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-1.5">
+                <label for="local-url" class="text-xs font-medium text-muted-foreground">Endpoint Local</label>
+                <div class="flex rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring">
+                  <input
+                    id="local-url"
+                    type="text"
+                    readonly
+                    value="http://127.0.0.1:4891/mcp"
+                    class="block w-full flex-1 border-0 bg-transparent py-1.5 pl-3 pr-1 font-mono text-xs text-foreground focus:outline-none"
+                  />
+                  <div class="flex items-center pr-1">
+                    <button
+                      type="button"
+                      data-target="local-url"
+                      class="btn-copy inline-flex h-7 items-center rounded px-2 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                    >
+                      Copiar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Access Token with Reveal & Rotate -->
+            <div class="space-y-1.5">
+              <label for="api-token" class="text-xs font-medium text-muted-foreground">Token de Acesso Bearer</label>
+              <div class="flex rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring">
+                <input
+                  id="api-token"
+                  type="password"
+                  readonly
+                  autocomplete="off"
+                  class="block w-full flex-1 border-0 bg-transparent py-1.5 pl-3 pr-2 font-mono text-xs text-foreground focus:outline-none"
+                />
+                <div class="flex items-center gap-1 pr-1">
+                  <button
+                    id="token-eye"
+                    type="button"
+                    class="inline-flex h-7 items-center rounded px-2 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                  >
+                    Mostrar
+                  </button>
+                  <button
+                    type="button"
+                    data-target="api-token"
+                    class="btn-copy inline-flex h-7 items-center rounded px-2 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                  >
+                    Copiar
+                  </button>
+                  <button
+                    id="regenerate-btn"
+                    type="button"
+                    title="Revogar token atual e gerar um novo"
+                    class="inline-flex h-7 items-center gap-1 rounded border bg-secondary px-2 text-[11px] font-medium text-secondary-foreground hover:bg-secondary/80 transition-colors"
+                  >
+                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                    <span>Novo</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Tunnel Provider Card -->
+      <section class="rounded-xl border bg-card text-card-foreground shadow-sm p-5 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="space-y-0.5">
+            <h2 class="text-sm font-semibold tracking-tight">Provedor de Túnel</h2>
+            <p id="provider-hint" class="text-xs text-muted-foreground">Cloudflare Quick Tunnel: sem conta, URL muda a cada início.</p>
+          </div>
+          <select
+            id="provider-select"
+            class="h-9 rounded-md border bg-background px-3 py-1 text-xs font-medium shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="cloudflare">Cloudflare (Grátis)</option>
+            <option value="ngrok">ngrok (Domínio fixo)</option>
+          </select>
+        </div>
+
+        <div id="ngrok-fields" class="hidden space-y-4 pt-3 border-t">
+          <div class="space-y-1.5">
+            <label for="ngrok-token" class="text-xs font-medium">Authtoken do ngrok</label>
+            <div class="flex rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring">
+              <input
+                id="ngrok-token"
+                type="password"
+                autocomplete="off"
+                placeholder="Cole seu authtoken do ngrok..."
+                class="block w-full flex-1 border-0 bg-transparent py-1.5 pl-3 pr-2 font-mono text-xs focus:outline-none"
+              />
+              <div class="flex items-center pr-1">
+                <button
+                  id="ngrok-eye"
+                  type="button"
+                  class="inline-flex h-7 items-center rounded px-2 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  Mostrar
+                </button>
+              </div>
+            </div>
+            <p class="text-[11px] text-muted-foreground">Disponível em dashboard.ngrok.com → Your Authtoken. Salvo localmente.</p>
+          </div>
+
+          <div class="space-y-1.5">
+            <label for="ngrok-domain" class="text-xs font-medium">Domínio estático (opcional)</label>
+            <input
+              id="ngrok-domain"
+              type="text"
+              autocomplete="off"
+              placeholder="ex.: meu-bridge.ngrok-free.app"
+              class="flex h-9 w-full rounded-md border bg-background px-3 py-1 font-mono text-xs shadow-sm transition-colors placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p class="text-[11px] text-muted-foreground">Deixe em branco para gerar uma URL aleatória.</p>
+          </div>
+
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-[11px] text-muted-foreground">Salve antes de iniciar a conexão.</span>
+            <button
+              id="save-tunnel-btn"
+              type="button"
+              class="inline-flex h-8 items-center justify-center rounded-md bg-secondary px-3 text-xs font-medium text-secondary-foreground shadow-sm hover:bg-secondary/80 transition-colors"
+            >
+              Salvar túnel
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Application Preferences Card -->
+      <section class="rounded-xl border bg-card text-card-foreground shadow-sm p-5 space-y-4">
         <div>
-          <strong>Executar em segundo plano</strong>
-          <small>Minimiza para a bandeja do sistema ao fechar a janela</small>
+          <h2 class="text-sm font-semibold tracking-tight">Preferências do Aplicativo</h2>
+          <p class="text-xs text-muted-foreground">Comportamento da janela, inicialização e feedback visual.</p>
         </div>
-        <input id="bg-toggle" type="checkbox" checked />
-      </label>
 
-      <label class="toggle-row">
+        <div class="divide-y">
+          <!-- Switch 1 -->
+          <div class="flex items-center justify-between gap-4 py-3 first:pt-0">
+            <div class="space-y-0.5">
+              <label for="bg-toggle" class="text-xs font-medium leading-none cursor-pointer">Executar em segundo plano</label>
+              <p class="text-[11px] text-muted-foreground">Minimiza para a bandeja do sistema ao fechar a janela</p>
+            </div>
+            <button type="button" role="switch" id="bg-switch-btn" aria-checked="true" data-state="checked" class="shadcn-switch">
+              <span class="shadcn-switch-thumb"></span>
+            </button>
+            <input id="bg-toggle" type="checkbox" checked class="sr-only" />
+          </div>
+
+          <!-- Switch 2 -->
+          <div class="flex items-center justify-between gap-4 py-3">
+            <div class="space-y-0.5">
+              <label for="toggle-agent-animation" class="text-xs font-medium leading-none cursor-pointer">Indicador visual durante ação do agente</label>
+              <p class="text-[11px] text-muted-foreground">Exibe borda luminosa discreta na tela sem interferir em capturas ou OCR</p>
+            </div>
+            <button type="button" role="switch" id="anim-switch-btn" aria-checked="true" data-state="checked" class="shadcn-switch">
+              <span class="shadcn-switch-thumb"></span>
+            </button>
+            <input id="toggle-agent-animation" type="checkbox" checked class="sr-only" />
+          </div>
+
+          <!-- Switch 3 -->
+          <div class="flex items-center justify-between gap-4 py-3 last:pb-0">
+            <div class="space-y-0.5">
+              <label for="autostart-toggle" class="text-xs font-medium leading-none cursor-pointer">Iniciar com o sistema</label>
+              <p class="text-[11px] text-muted-foreground">Abre o Spark Bridge automaticamente ao ligar o computador</p>
+            </div>
+            <button type="button" role="switch" id="autostart-switch-btn" aria-checked="false" data-state="unchecked" class="shadcn-switch">
+              <span class="shadcn-switch-thumb"></span>
+            </button>
+            <input id="autostart-toggle" type="checkbox" class="sr-only" />
+          </div>
+        </div>
+      </section>
+
+      <!-- System Diagnostics Card -->
+      <section class="rounded-xl border bg-card text-card-foreground shadow-sm p-5 space-y-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-sm font-semibold tracking-tight">Diagnóstico do Sistema</h2>
+            <p class="text-xs text-muted-foreground">Verifica dependências nativas de captura, automação e OCR.</p>
+          </div>
+          <button
+            id="check-components-btn"
+            type="button"
+            class="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+          >
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+            <span>Verificar</span>
+          </button>
+        </div>
+
+        <div id="components-result" class="space-y-2" aria-live="polite">
+          <p class="text-xs text-muted-foreground">Clique em “Verificar” para inspecionar os componentes locais.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- ==================== TAB 2: CLIENTES & API ==================== -->
+    <div id="view-clients" class="view-section hidden space-y-5 animate-in">
+
+      <!-- Client Config Generator Card -->
+      <section class="rounded-xl border bg-card text-card-foreground shadow-sm p-5 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 class="text-sm font-semibold tracking-tight">Configuração do Cliente MCP</h2>
+            <p id="config-hint" class="text-xs text-muted-foreground">Selecione seu cliente para gerar o snippet pronto.</p>
+          </div>
+
+          <select
+            id="client-select"
+            class="h-9 rounded-md border bg-background px-3 py-1 text-xs font-medium shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="claude">Claude Desktop</option>
+            <option value="cursor">Cursor</option>
+            <option value="vscode">VS Code</option>
+            <option value="gemini">Gemini CLI / Web</option>
+            <option value="generic">Genérico (URL + Header)</option>
+          </select>
+        </div>
+
+        <!-- Code Block Container -->
+        <div class="relative rounded-lg border bg-zinc-950 text-zinc-100 overflow-hidden">
+          <div class="flex items-center justify-between border-b border-zinc-800 bg-zinc-900/70 px-3 py-1.5">
+            <span id="config-filename" class="font-mono text-[11px] text-zinc-400">claude_desktop_config.json</span>
+            <button
+              id="copy-config-btn"
+              type="button"
+              class="inline-flex h-6 items-center gap-1 rounded bg-zinc-800 px-2 text-[11px] font-medium text-zinc-200 hover:bg-zinc-700 transition-colors"
+            >
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              <span>Copiar JSON</span>
+            </button>
+          </div>
+          <textarea
+            id="config-output"
+            readonly
+            rows="8"
+            spellcheck="false"
+            class="w-full resize-y bg-transparent p-3.5 font-mono text-xs leading-relaxed text-indigo-300 focus:outline-none"
+          ></textarea>
+        </div>
+
+        <!-- OAuth Gemini Credentials Sub-card -->
+        <div class="rounded-lg border bg-muted/40 p-4 space-y-3.5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 text-xs font-semibold">
+              <svg class="h-3.5 w-3.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <span>Credenciais OAuth 2.0 (Conector Gemini)</span>
+            </div>
+            <span class="rounded border bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">PKCE</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="space-y-1">
+              <label for="oauth-client-id" class="text-[11px] font-medium text-muted-foreground">Client ID</label>
+              <div class="flex rounded-md border bg-background">
+                <input id="oauth-client-id" type="text" readonly class="block w-full flex-1 border-0 bg-transparent py-1.5 pl-2.5 pr-1 font-mono text-xs focus:outline-none" />
+                <button type="button" data-target="oauth-client-id" class="btn-copy px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground">Copiar</button>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <label for="oauth-client-secret" class="text-[11px] font-medium text-muted-foreground">Client Secret</label>
+              <div class="flex rounded-md border bg-background">
+                <input id="oauth-client-secret" type="password" readonly class="block w-full flex-1 border-0 bg-transparent py-1.5 pl-2.5 pr-1 font-mono text-xs focus:outline-none" />
+                <button id="oauth-secret-eye" type="button" class="px-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground">Ver</button>
+                <button type="button" data-target="oauth-client-secret" class="btn-copy px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground">Copiar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-1">
+            <label for="oauth-redirect-uri" class="text-[11px] font-medium text-muted-foreground">URI de Redirecionamento</label>
+            <div class="flex gap-2">
+              <input
+                id="oauth-redirect-uri"
+                type="url"
+                placeholder="Cole a URI gerada no Gemini..."
+                class="flex h-8 w-full rounded-md border bg-background px-3 py-1 font-mono text-xs shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button
+                id="save-oauth-redirect-btn"
+                type="button"
+                class="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+              >
+                Salvar URI
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- REST & MCP Endpoints Card -->
+      <section class="rounded-xl border bg-card text-card-foreground shadow-sm p-5 space-y-4">
         <div>
-          <strong>Animação enquanto o agente trabalha</strong>
-          <small>Mostra o brilho colorido apenas para você, sem entrar na captura ou no OCR</small>
+          <h2 class="text-sm font-semibold tracking-tight">Endpoints HTTP &amp; SSE</h2>
+          <p class="text-xs text-muted-foreground">Rotas expostas localmente e pelo túnel seguro.</p>
         </div>
-        <input id="toggle-agent-animation" type="checkbox" checked />
-      </label>
 
-      <label class="toggle-row">
-        <div>
-          <strong>Iniciar com o sistema</strong>
-          <small>Abre automaticamente quando o PC ligar</small>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div class="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-500">POST</span>
+              <code class="truncate font-mono text-xs font-medium">/mcp</code>
+            </div>
+            <span class="text-[11px] text-muted-foreground shrink-0 ml-2">Streamable HTTP</span>
+          </div>
+
+          <div class="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="rounded bg-sky-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-sky-500">GET</span>
+              <code class="truncate font-mono text-xs font-medium">/mcp</code>
+            </div>
+            <span class="text-[11px] text-muted-foreground shrink-0 ml-2">Stream SSE</span>
+          </div>
+
+          <div class="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="rounded bg-sky-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-sky-500">GET</span>
+              <code class="truncate font-mono text-xs font-medium">/screen</code>
+            </div>
+            <span class="text-[11px] text-muted-foreground shrink-0 ml-2">Captura PNG</span>
+          </div>
+
+          <div class="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="rounded bg-sky-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-sky-500">GET</span>
+              <code class="truncate font-mono text-xs font-medium">/screen/ocr</code>
+            </div>
+            <span class="text-[11px] text-muted-foreground shrink-0 ml-2">OCR + Coords</span>
+          </div>
+
+          <div class="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-500">POST</span>
+              <code class="truncate font-mono text-xs font-medium">/mouse/*</code>
+            </div>
+            <span class="text-[11px] text-muted-foreground shrink-0 ml-2">Move, Click, Drag</span>
+          </div>
+
+          <div class="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-500">POST</span>
+              <code class="truncate font-mono text-xs font-medium">/keyboard/*</code>
+            </div>
+            <span class="text-[11px] text-muted-foreground shrink-0 ml-2">Type &amp; Atalhos</span>
+          </div>
+
+          <div class="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-500">POST</span>
+              <code class="truncate font-mono text-xs font-medium">/terminal/exec</code>
+            </div>
+            <span class="text-[11px] text-muted-foreground shrink-0 ml-2">Shell Remoto</span>
+          </div>
+
+          <div class="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="rounded bg-sky-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-sky-500">GET</span>
+              <code class="truncate font-mono text-xs font-medium">/health</code>
+            </div>
+            <span class="text-[11px] text-muted-foreground shrink-0 ml-2">Telemetria</span>
+          </div>
         </div>
-        <input id="autostart-toggle" type="checkbox" />
-      </label>
-    </section>
+      </section>
 
-    <section class="card info connection-view">
-      <h2>Endpoints disponíveis</h2>
-      <div class="endpoints-grid">
-        <div class="ep"><code>POST /mcp</code><span>MCP Streamable HTTP</span></div>
-        <div class="ep"><code>GET /mcp</code><span>Stream SSE do MCP</span></div>
-        <div class="ep"><code>GET /screen</code><span>Ver tela</span></div>
-        <div class="ep"><code>POST /mouse/move</code><span>Mover mouse</span></div>
-        <div class="ep"><code>POST /mouse/click</code><span>Clicar</span></div>
-        <div class="ep"><code>POST /mouse/scroll</code><span>Rolar</span></div>
-        <div class="ep"><code>POST /mouse/drag</code><span>Arrastar</span></div>
-        <div class="ep"><code>POST /keyboard/type</code><span>Digitar</span></div>
-        <div class="ep"><code>POST /keyboard/key</code><span>Tecla / atalho</span></div>
-        <div class="ep"><code>POST /terminal/exec</code><span>Terminal</span></div>
-        <div class="ep"><code>GET /screen/info</code><span>Info da tela</span></div>
-        <div class="ep"><code>GET /screenshot.jpg</code><span>Ver captura (JPEG)</span></div>
-        <div class="ep"><code>GET /screen/ocr</code><span>OCR (texto + coords)</span></div>
-        <div class="ep"><code>GET /clipboard</code><span>Ler clipboard</span></div>
-        <div class="ep"><code>POST /clipboard</code><span>Escrever clipboard</span></div>
-        <div class="ep"><code>POST /open-url</code><span>Abrir URL</span></div>
-        <div class="ep"><code>GET /health</code><span>Status do servidor</span></div>
-      </div>
-    </section>
+      <!-- Shadcn Accordion for Troubleshooting -->
+      <details class="group rounded-xl border bg-card text-card-foreground shadow-sm">
+        <summary class="flex cursor-pointer list-none items-center justify-between p-5 text-sm font-semibold">
+          <span>Guia rápido e solução de problemas</span>
+          <svg class="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </summary>
+        <div class="border-t px-5 pb-5 pt-4 space-y-3 text-xs text-muted-foreground leading-relaxed">
+          <ol class="list-decimal pl-4 space-y-1.5">
+            <li>Na aba <strong class="text-foreground">Conexão</strong>, clique em <strong class="text-foreground">Iniciar Conexão</strong> e aguarde o status <strong class="text-emerald-500">Online</strong>.</li>
+            <li>Copie a <strong class="text-foreground">URL Completa para MCP</strong> (terminando em <code class="text-primary">/mcp?token=...</code>) ou o snippet JSON acima.</li>
+            <li>Cole no seu cliente de IA e recarregue o servidor MCP.</li>
+          </ol>
+          <div class="rounded-md border bg-muted/50 p-3 space-y-1.5">
+            <p class="font-semibold text-foreground">Erro “Não foi possível acessar o servidor MCP”?</p>
+            <ul class="list-disc pl-4 space-y-1">
+              <li>Verifique se a URL termina exatamente em <code class="text-primary">/mcp</code> com o token atual.</li>
+              <li>No Cloudflare Quick Tunnel, uma nova URL é gerada a cada reinício.</li>
+            </ul>
+          </div>
+        </div>
+      </details>
+    </div>
 
-    <details class="card help connection-view">
-      <summary>❓ Como conectar e resolver erros</summary>
-      <ol>
-        <li>Clique em <strong>Iniciar Conexão</strong> e aguarde o status ficar <strong>Online</strong>.</li>
-        <li>Copie a <strong>URL Completa para MCP</strong> (termina em <code>/mcp?token=...</code>).</li>
-        <li>Na aba <strong>Configuração do cliente MCP</strong>, escolha seu cliente e copie o JSON.</li>
-        <li>Cole a configuração no cliente e reconecte.</li>
-      </ol>
-      <p><strong>Erro “Não foi possível acessar o servidor MCP. Revise o URL”?</strong></p>
-      <ul>
-        <li>Use a URL com <code>/mcp</code> (não apenas <code>/</code>) e com o token atual.</li>
-        <li>Se o cliente permite headers, use <code>Authorization: Bearer &lt;token&gt;</code> e a URL sem <code>?token=</code>.</li>
-        <li>Confira se o Spark Bridge está <strong>Online</strong> e clique em <strong>Testar conexão MCP</strong>.</li>
-        <li>URLs do Cloudflare Quick Tunnel mudam a cada início — copie a URL nova após reconectar.</li>
-      </ul>
-    </details>
+    <!-- ==================== TAB 3: SEGURANÇA ==================== -->
+    <div id="view-security" class="view-section hidden space-y-5 animate-in">
+      <section class="rounded-xl border bg-card text-card-foreground shadow-sm p-5 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 class="text-sm font-semibold tracking-tight">Permissões das Ferramentas MCP</h2>
+            <p class="text-xs text-muted-foreground">Controle granular de acesso diretamente na camada do servidor.</p>
+          </div>
 
-    <footer class="footer connection-view">
-      <span>Spark Bridge v0.17.0 · Tauri + Rust · MCP Streamable HTTP</span>
+          <div class="flex items-center gap-1.5">
+            <button
+              id="enable-all-btn"
+              type="button"
+              class="inline-flex h-8 items-center rounded-md border bg-background px-2.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              Permitir tudo
+            </button>
+            <button
+              id="disable-all-btn"
+              type="button"
+              class="inline-flex h-8 items-center rounded-md border bg-background px-2.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              Bloquear tudo
+            </button>
+            <button
+              id="save-permissions-btn"
+              type="button"
+              class="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+            >
+              Salvar
+            </button>
+          </div>
+        </div>
+
+        <!-- Search Filter Input (shadcn style) -->
+        <div class="relative">
+          <svg class="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input
+            id="perm-search"
+            type="text"
+            placeholder="Filtrar ferramentas por nome ou identificador (ex.: terminal, ocr, mouse)..."
+            class="flex h-8 w-full rounded-md border bg-background pl-8 pr-3 text-xs shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+
+        <!-- Permissions List -->
+        <div id="permissions-list" class="space-y-2"></div>
+
+        <!-- Security Info Callout -->
+        <div class="rounded-lg border border-primary/25 bg-primary/5 p-3.5 text-xs space-y-1">
+          <div class="flex items-center gap-1.5 font-semibold text-primary">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>Proteção OAuth &amp; Revogação Instantânea</span>
+          </div>
+          <p class="text-[11px] text-muted-foreground leading-relaxed">
+            O servidor expõe descoberta OAuth com PKCE e consentimento local. Para revogar imediatamente qualquer sessão ativa, clique em <strong class="text-foreground">Parar Conexão</strong> ou gere um novo token na aba Conexão.
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="pt-2 pb-6 text-center text-[11px] text-muted-foreground">
+      Spark Bridge v0.17.0 · Tauri + Rust · MCP Streamable HTTP
     </footer>
   </div>
 
-  <div id="toast" class="toast hidden"></div>
+  <!-- ==================== SHADCN ALERT DIALOG (CONFIRMAR NOVO TOKEN) ==================== -->
+  <div id="confirm-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center px-4">
+    <div class="w-full max-w-sm rounded-xl border bg-card p-5 text-card-foreground shadow-2xl space-y-4 animate-in">
+      <div class="space-y-1.5">
+        <h3 class="text-sm font-semibold">Gerar novo token de acesso?</h3>
+        <p class="text-xs text-muted-foreground leading-relaxed">
+          Esta ação revogará imediatamente o token atual. Clientes MCP conectados precisarão ser atualizados com a nova URL.
+        </p>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button
+          id="confirm-cancel"
+          type="button"
+          class="inline-flex h-8 items-center justify-center rounded-md border bg-background px-3 text-xs font-medium hover:bg-accent"
+        >
+          Cancelar
+        </button>
+        <button
+          id="confirm-proceed"
+          type="button"
+          class="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 text-xs font-medium text-destructive-foreground shadow-sm hover:bg-destructive/90"
+        >
+          Revogar e gerar novo
+        </button>
+      </div>
+    </div>
+  </div>
 
-  <script src="app.js"></script>
+  <!-- ==================== SONNER TOAST STACK ==================== -->
+  <div id="sonner-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-xs w-full pointer-events-none"></div>
+
+  <script>
+    const hasTauri = !!(window.__TAURI__ && window.__TAURI__.core);
+    const invoke = hasTauri ? window.__TAURI__.core.invoke : null;
+
+    // ---------- Estado Mock para Preview no Navegador ----------
+    const mockState = {
+      running: false,
+      token: "sb_live_98f7a6c5e4d3b2a10987654321fedcba",
+      public_url: "https://spark-bridge-demo.trycloudflare.com",
+      local_url: "http://127.0.0.1:4891",
+      oauth_client_id: "spark-bridge-oauth-client",
+      oauth_client_secret: "sb_sec_7741a9b0c3d2e8f1a4b5c6d7e8f90123",
+      oauth_redirect_uri: "https://gemini.google.com/oauth/callback",
+      background_mode: true,
+      tunnel_provider: "cloudflare",
+      ngrok_authtoken: "",
+      ngrok_domain: "",
+      permissions: {
+        screen_capture: true,
+        mouse_move: true,
+        mouse_click: true,
+        mouse_scroll: true,
+        keyboard_type: true,
+        keyboard_key: true,
+        terminal_exec: false,
+        mouse_drag: true,
+        get_screen_info: true,
+        clipboard_read: true,
+        clipboard_write: true,
+        open_url: true,
+        wait: true,
+        screen_ascii: true,
+        ocr_screen: true
+      }
+    };
+
+    // ---------- Sonner Toast System ----------
+    const sonnerContainer = document.getElementById("sonner-container");
+    function toast(msg, type = "default") {
+      const el = document.createElement("div");
+      el.className = "sonner-toast pointer-events-auto flex items-center gap-2.5 rounded-lg border bg-card px-3.5 py-2.5 text-xs font-medium text-card-foreground shadow-lg";
+      const iconColor = type === "error" ? "text-destructive" : "text-emerald-500";
+      const iconSvg = type === "error"
+        ? `<svg class="h-4 w-4 shrink-0 ${iconColor}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`
+        : `<svg class="h-4 w-4 shrink-0 ${iconColor}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+      el.innerHTML = `${iconSvg}<span>${msg}</span>`;
+      sonnerContainer.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = "0";
+        el.style.transform = "translateY(6px)";
+        el.style.transition = "all 180ms ease";
+        setTimeout(() => el.remove(), 180);
+      }, 2600);
+    }
+
+    // ---------- Tema claro/escuro ----------
+    const themeToggle = document.getElementById("theme-toggle");
+    const iconSun = document.getElementById("icon-sun");
+    const iconMoon = document.getElementById("icon-moon");
+
+    function applyTheme(theme) {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      iconSun.classList.toggle("hidden", theme === "light");
+      iconMoon.classList.toggle("hidden", theme !== "light");
+      try {
+        localStorage.setItem("spark-theme", theme);
+      } catch {}
+    }
+
+    function loadTheme() {
+      let theme = "dark";
+      try {
+        theme = localStorage.getItem("spark-theme") || "dark";
+      } catch {}
+      applyTheme(theme);
+    }
+
+    themeToggle.addEventListener("click", () => {
+      const isDark = document.documentElement.classList.contains("dark");
+      applyTheme(isDark ? "light" : "dark");
+    });
+
+    loadTheme();
+
+    // ---------- Helper para Sincronizar Shadcn Switches ----------
+    function syncSwitchVisual(btn, input) {
+      const checked = input.checked;
+      btn.setAttribute("aria-checked", String(checked));
+      btn.setAttribute("data-state", checked ? "checked" : "unchecked");
+    }
+
+    function bindShadcnSwitch(btnId, inputId, onChange) {
+      const btn = document.getElementById(btnId);
+      const input = document.getElementById(inputId);
+      btn.addEventListener("click", () => {
+        input.checked = !input.checked;
+        syncSwitchVisual(btn, input);
+        input.dispatchEvent(new Event("change"));
+      });
+      if (onChange) input.addEventListener("change", onChange);
+    }
+
+    // ---------- Navegação por Abas ----------
+    const navTabs = document.querySelectorAll(".nav-tab");
+    const views = {
+      connection: document.getElementById("view-connection"),
+      clients: document.getElementById("view-clients"),
+      security: document.getElementById("view-security")
+    };
+
+    function switchTab(target) {
+      navTabs.forEach((t) => {
+        const active = t.dataset.tab === target;
+        t.setAttribute("aria-selected", String(active));
+        if (active) {
+          t.classList.add("bg-background", "text-foreground", "shadow-sm");
+          t.classList.remove("hover:text-foreground");
+        } else {
+          t.classList.remove("bg-background", "text-foreground", "shadow-sm");
+          t.classList.add("hover:text-foreground");
+        }
+      });
+      Object.entries(views).forEach(([key, el]) => {
+        el.classList.toggle("hidden", key !== target);
+      });
+      if (target === "security") loadPermissions();
+    }
+
+    navTabs.forEach((tab) => {
+      tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+    });
+
+    // ---------- Referências DOM ----------
+    const toggleBtn = document.getElementById("toggle-btn");
+    const btnText = document.getElementById("btn-text");
+    const statusBadge = document.getElementById("status-badge");
+    const statusText = document.getElementById("status-text");
+    const statusDot = document.getElementById("status-dot");
+    const statusPing = document.getElementById("status-ping");
+    const metricProvider = document.getElementById("metric-provider");
+    const metricLatency = document.getElementById("metric-latency");
+
+    const mcpUrlInput = document.getElementById("mcp-url");
+    const authHeaderInput = document.getElementById("auth-header");
+    const publicUrlInput = document.getElementById("public-url");
+    const localUrlInput = document.getElementById("local-url");
+    const apiTokenInput = document.getElementById("api-token");
+    const tokenEyeBtn = document.getElementById("token-eye");
+    const regenerateBtn = document.getElementById("regenerate-btn");
+    const testBtn = document.getElementById("test-btn");
+    const testResult = document.getElementById("test-result");
+    const clientSelect = document.getElementById("client-select");
+    const configOutput = document.getElementById("config-output");
+    const configHint = document.getElementById("config-hint");
+    const configFilename = document.getElementById("config-filename");
+    const oauthClientIdInput = document.getElementById("oauth-client-id");
+    const oauthClientSecretInput = document.getElementById("oauth-client-secret");
+    const oauthSecretEye = document.getElementById("oauth-secret-eye");
+    const oauthRedirectUriInput = document.getElementById("oauth-redirect-uri");
+    const saveOauthRedirectBtn = document.getElementById("save-oauth-redirect-btn");
+    const copyConfigBtn = document.getElementById("copy-config-btn");
+    const providerSelect = document.getElementById("provider-select");
+    const providerHint = document.getElementById("provider-hint");
+    const ngrokFields = document.getElementById("ngrok-fields");
+    const ngrokToken = document.getElementById("ngrok-token");
+    const ngrokDomain = document.getElementById("ngrok-domain");
+    const ngrokEye = document.getElementById("ngrok-eye");
+    const saveTunnelBtn = document.getElementById("save-tunnel-btn");
+    const bgToggle = document.getElementById("bg-toggle");
+    const agentAnimationToggle = document.getElementById("toggle-agent-animation");
+    const autostartToggle = document.getElementById("autostart-toggle");
+    const errorMsg = document.getElementById("error-msg");
+    const tauriMissing = document.getElementById("tauri-missing");
+    const permissionsList = document.getElementById("permissions-list");
+    const permSearch = document.getElementById("perm-search");
+    const permCounterBadge = document.getElementById("perm-counter-badge");
+    const savePermissionsBtn = document.getElementById("save-permissions-btn");
+    const enableAllBtn = document.getElementById("enable-all-btn");
+    const disableAllBtn = document.getElementById("disable-all-btn");
+    const checkComponentsBtn = document.getElementById("check-components-btn");
+    const componentsResult = document.getElementById("components-result");
+
+    let isRunning = false;
+    let currentStatus = null;
+    let currentPermissionsMap = { ...mockState.permissions };
+
+    function loadAnimationPreference() {
+      try {
+        return localStorage.getItem("spark_bridge_animation_enabled") !== "false";
+      } catch {
+        return true;
+      }
+    }
+
+    function saveAnimationPreference(enabled) {
+      try {
+        localStorage.setItem("spark_bridge_animation_enabled", String(enabled));
+      } catch {}
+    }
+
+    // ---------- Permissões ----------
+    const TOOL_META = {
+      screen_capture: { label: "Capturar tela", risk: "low" },
+      get_screen_info: { label: "Ler informações dos monitores", risk: "low" },
+      screen_ascii: { label: "Ler tela em ASCII", risk: "low" },
+      ocr_screen: { label: "Executar OCR da tela", risk: "low" },
+      mouse_move: { label: "Mover mouse", risk: "med" },
+      mouse_click: { label: "Clicar", risk: "med" },
+      mouse_scroll: { label: "Rolar página", risk: "med" },
+      mouse_drag: { label: "Segurar e arrastar mouse", risk: "med" },
+      keyboard_type: { label: "Digitar texto", risk: "med" },
+      keyboard_key: { label: "Pressionar teclas e atalhos", risk: "med" },
+      clipboard_read: { label: "Ler área de transferência", risk: "med" },
+      clipboard_write: { label: "Escrever na área de transferência", risk: "med" },
+      open_url: { label: "Abrir URLs no navegador", risk: "med" },
+      wait: { label: "Aguardar intervalo", risk: "low" },
+      terminal_exec: { label: "Executar comandos no terminal", risk: "high" },
+    };
+
+    function updatePermCounter() {
+      const entries = Object.keys(TOOL_META);
+      const enabledCount = entries.filter((k) => currentPermissionsMap[k] !== false).length;
+      permCounterBadge.textContent = `${enabledCount}/${entries.length}`;
+    }
+
+    function renderPermissions(permissions, filter = "") {
+      currentPermissionsMap = { ...permissions };
+      updatePermCounter();
+      permissionsList.replaceChildren();
+      const q = filter.trim().toLowerCase();
+
+      Object.entries(TOOL_META).forEach(([name, meta]) => {
+        if (q && !name.toLowerCase().includes(q) && !meta.label.toLowerCase().includes(q)) return;
+
+        const isChecked = currentPermissionsMap[name] !== false;
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between gap-3 rounded-lg border bg-background px-3.5 py-2.5 transition-colors hover:bg-accent/40";
+
+        const riskBadge = meta.risk === "high"
+          ? `<span class="rounded border border-destructive/30 bg-destructive/10 px-1.5 py-0.2 font-mono text-[10px] font-medium text-destructive">Crítico</span>`
+          : "";
+
+        row.innerHTML = `
+          <div class="min-w-0 space-y-0.5">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-medium text-foreground truncate">${meta.label}</span>
+              ${riskBadge}
+            </div>
+            <code class="block font-mono text-[11px] text-muted-foreground">${name}</code>
+          </div>
+          <button type="button" role="switch" aria-checked="${isChecked}" data-state="${isChecked ? "checked" : "unchecked"}" data-perm-switch="${name}" class="shadcn-switch">
+            <span class="shadcn-switch-thumb"></span>
+          </button>
+        `;
+
+        const swBtn = row.querySelector("[data-perm-switch]");
+        swBtn.addEventListener("click", () => {
+          const next = swBtn.getAttribute("data-state") !== "checked";
+          currentPermissionsMap[name] = next;
+          swBtn.setAttribute("aria-checked", String(next));
+          swBtn.setAttribute("data-state", next ? "checked" : "unchecked");
+          updatePermCounter();
+        });
+
+        permissionsList.append(row);
+      });
+    }
+
+    permSearch.addEventListener("input", () => {
+      renderPermissions(currentPermissionsMap, permSearch.value);
+    });
+
+    async function loadPermissions() {
+      if (!hasTauri) {
+        renderPermissions(mockState.permissions, permSearch.value);
+        return;
+      }
+      try {
+        renderPermissions(await invoke("get_permissions"), permSearch.value);
+      } catch (err) {
+        permissionsList.innerHTML = `<div class="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">Erro ao carregar permissões: ${err}</div>`;
+      }
+    }
+
+    async function savePermissions() {
+      if (!hasTauri) {
+        mockState.permissions = { ...currentPermissionsMap };
+        toast("Permissões atualizadas (modo simulação).");
+        return;
+      }
+      savePermissionsBtn.disabled = true;
+      try {
+        renderPermissions(await invoke("set_permissions", { permissions: currentPermissionsMap }), permSearch.value);
+        toast("Permissões salvas no servidor MCP.");
+      } catch (err) {
+        toast(`Erro ao salvar permissões: ${err}`, "error");
+      } finally {
+        savePermissionsBtn.disabled = false;
+      }
+    }
+
+    savePermissionsBtn.addEventListener("click", savePermissions);
+    enableAllBtn.addEventListener("click", () => {
+      Object.keys(TOOL_META).forEach((k) => (currentPermissionsMap[k] = true));
+      renderPermissions(currentPermissionsMap, permSearch.value);
+    });
+    disableAllBtn.addEventListener("click", () => {
+      Object.keys(TOOL_META).forEach((k) => (currentPermissionsMap[k] = false));
+      renderPermissions(currentPermissionsMap, permSearch.value);
+    });
+
+    // ---------- Diagnóstico de Componentes ----------
+    function renderComponents(components) {
+      componentsResult.replaceChildren();
+      for (const component of components) {
+        const item = document.createElement("div");
+        item.className = "flex items-start justify-between gap-3 rounded-lg border bg-background p-3 text-xs";
+        const badgeHtml = component.installed
+          ? `<span class="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-500 shrink-0">✓ Pronto</span>`
+          : `<span class="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-500 shrink-0">Ausente</span>`;
+
+        item.innerHTML = `
+          <div class="space-y-0.5 min-w-0">
+            <div class="font-medium text-foreground">${component.name}</div>
+            <div class="text-[11px] text-muted-foreground">${component.detail}</div>
+            ${!component.installed && component.install_hint ? `<code class="mt-1 inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-amber-500">${component.install_hint}</code>` : ""}
+          </div>
+          ${badgeHtml}
+        `;
+        componentsResult.append(item);
+      }
+    }
+
+    async function checkComponents() {
+      checkComponentsBtn.disabled = true;
+      checkComponentsBtn.querySelector("span").textContent = "Verificando...";
+      if (!hasTauri) {
+        await new Promise((r) => setTimeout(r, 380));
+        renderComponents([
+          { name: "Captura de Tela (Native)", installed: true, detail: "Monitor principal 1920x1080 detectado" },
+          { name: "Controle de Entrada (HID)", installed: true, detail: "Mouse e teclado prontos" },
+          { name: "Motor OCR", installed: true, detail: "Windows Media OCR / Tesseract disponível" },
+          { name: "Cloudflared Tunnel", installed: true, detail: "Binário embutido pronto para uso" }
+        ]);
+        checkComponentsBtn.disabled = false;
+        checkComponentsBtn.querySelector("span").textContent = "Verificar";
+        return;
+      }
+      try {
+        renderComponents(await invoke("check_components"));
+      } catch (err) {
+        componentsResult.innerHTML = `<div class="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">Erro ao verificar: ${err}</div>`;
+      } finally {
+        checkComponentsBtn.disabled = false;
+        checkComponentsBtn.querySelector("span").textContent = "Verificar";
+      }
+    }
+
+    checkComponentsBtn.addEventListener("click", checkComponents);
+
+    // ---------- Configuração de Clientes ----------
+    const CLIENT_META = {
+      claude: {
+        file: "claude_desktop_config.json",
+        hint: "Cole em claude_desktop_config.json e reinicie o Claude Desktop."
+      },
+      cursor: {
+        file: ".cursor/mcp.json",
+        hint: "Cole em .cursor/mcp.json ou nas configurações de MCP do Cursor."
+      },
+      vscode: {
+        file: ".vscode/mcp.json",
+        hint: "Cole em .vscode/mcp.json e clique em Start no VS Code."
+      },
+      gemini: {
+        file: "gemini-oauth-connector.txt",
+        hint: "No Gemini, preencha a URL do servidor MCP, Client ID e Client Secret abaixo."
+      },
+      generic: {
+        file: "mcp-endpoint.txt",
+        hint: "Use a URL completa com ?token=... ou a URL base + header Authorization."
+      }
+    };
+
+    function mcpBaseUrl(status) {
+      return status && status.public_url ? `${status.public_url}/mcp` : "";
+    }
+
+    function mcpFullUrl(status) {
+      const base = mcpBaseUrl(status);
+      return base && status.token ? `${base}?token=${status.token}` : "";
+    }
+
+    function buildConfig(client, status) {
+      const base = mcpBaseUrl(status);
+      const token = (status && status.token) || "";
+      const bearer = `Bearer ${token}`;
+
+      if (!status || !status.running || !base) {
+        return "// Inicie a conexão na aba 'Conexão' para gerar a configuração.\n// A URL pública e o token aparecerão automaticamente aqui.";
+      }
+
+      switch (client) {
+        case "claude":
+          return JSON.stringify(
+            {
+              mcpServers: {
+                "spark-bridge": {
+                  command: "npx",
+                  args: ["-y", "mcp-remote", base, "--header", `Authorization: ${bearer}`],
+                },
+              },
+            },
+            null,
+            2
+          );
+        case "cursor":
+          return JSON.stringify(
+            {
+              mcpServers: {
+                "spark-bridge": {
+                  url: base,
+                  headers: { Authorization: bearer },
+                },
+              },
+            },
+            null,
+            2
+          );
+        case "vscode":
+          return JSON.stringify(
+            {
+              servers: {
+                "spark-bridge": {
+                  type: "http",
+                  url: base,
+                  headers: { Authorization: bearer },
+                },
+              },
+            },
+            null,
+            2
+          );
+        case "gemini":
+          return [
+            `URL do servidor MCP: ${base}`,
+            `ID do cliente OAuth: ${status.oauth_client_id || ""}`,
+            `Chave secreta do cliente OAuth: ${status.oauth_client_secret || ""}`,
+            `URI de redirecionamento: ${oauthRedirectUriInput.value}`,
+          ].join("\n");
+        default:
+          return [
+            `URL Completa: ${mcpFullUrl(status)}`,
+            "",
+            `Ou URL Base + Header:`,
+            `URL: ${base}`,
+            `Authorization: ${bearer}`,
+          ].join("\n");
+      }
+    }
+
+    function refreshConfig() {
+      const client = clientSelect.value;
+      configOutput.value = buildConfig(client, currentStatus);
+      const meta = CLIENT_META[client] || CLIENT_META.generic;
+      configHint.textContent = meta.hint;
+      configFilename.textContent = meta.file;
+    }
+
+    function refreshProviderUI() {
+      const isNgrok = providerSelect.value === "ngrok";
+      ngrokFields.classList.toggle("hidden", !isNgrok);
+      metricProvider.textContent = isNgrok ? "ngrok" : "Cloudflare";
+      providerHint.textContent = isNgrok
+        ? "ngrok: URL fixa com seu domínio estático (requer authtoken)."
+        : "Cloudflare Quick Tunnel: sem conta, URL muda a cada início.";
+    }
+
+    function updateUI(status) {
+      currentStatus = status;
+      isRunning = status.running;
+      apiTokenInput.value = status.token || "";
+      oauthClientIdInput.value = status.oauth_client_id || "";
+      oauthClientSecretInput.value = status.oauth_client_secret || "";
+      if (document.activeElement !== oauthRedirectUriInput) {
+        oauthRedirectUriInput.value = status.oauth_redirect_uri || "";
+      }
+      bgToggle.checked = status.background_mode;
+      syncSwitchVisual(document.getElementById("bg-switch-btn"), bgToggle);
+
+      testBtn.disabled = !status.running;
+
+      providerSelect.value = status.tunnel_provider || "cloudflare";
+      if (document.activeElement !== ngrokToken) {
+        ngrokToken.value = status.ngrok_authtoken || "";
+      }
+      if (document.activeElement !== ngrokDomain) {
+        ngrokDomain.value = status.ngrok_domain || "";
+      }
+      refreshProviderUI();
+
+      if (status.running) {
+        statusText.textContent = "Online";
+        statusBadge.className = "inline-flex h-8 items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-600 dark:text-emerald-400 shadow-sm transition-all";
+        statusDot.className = "relative inline-flex h-2 w-2 rounded-full bg-emerald-500";
+        statusPing.classList.remove("hidden");
+
+        btnText.textContent = "Parar Conexão";
+        toggleBtn.classList.remove("bg-primary", "hover:bg-primary/90");
+        toggleBtn.classList.add("bg-destructive", "hover:bg-destructive/90");
+
+        publicUrlInput.value = status.public_url || "";
+        mcpUrlInput.value = mcpFullUrl(status);
+        authHeaderInput.value = status.token ? `Bearer ${status.token}` : "";
+        localUrlInput.value = `${status.local_url}/mcp`;
+      } else {
+        statusText.textContent = "Offline";
+        statusBadge.className = "inline-flex h-8 items-center gap-2 rounded-full border bg-card px-3 text-xs font-medium text-muted-foreground shadow-sm transition-all";
+        statusDot.className = "relative inline-flex h-2 w-2 rounded-full bg-zinc-500";
+        statusPing.classList.add("hidden");
+
+        btnText.textContent = "Iniciar Conexão";
+        toggleBtn.classList.add("bg-primary", "hover:bg-primary/90");
+        toggleBtn.classList.remove("bg-destructive", "hover:bg-destructive/90");
+
+        publicUrlInput.value = "";
+        mcpUrlInput.value = "";
+        authHeaderInput.value = "";
+        localUrlInput.value = "http://127.0.0.1:4891/mcp";
+        metricLatency.textContent = "—";
+        metricLatency.className = "mt-1 font-mono text-sm font-semibold text-muted-foreground";
+        testResult.classList.add("hidden");
+      }
+
+      refreshConfig();
+    }
+
+    // ---------- Inicialização & Eventos ----------
+    async function init() {
+      const animationEnabled = loadAnimationPreference();
+      agentAnimationToggle.checked = animationEnabled;
+      syncSwitchVisual(document.getElementById("anim-switch-btn"), agentAnimationToggle);
+
+      if (!hasTauri) {
+        tauriMissing.classList.remove("hidden");
+        updateUI(mockState);
+        loadPermissions();
+        return;
+      }
+
+      try {
+        await invoke("set_animation_enabled", { enabled: animationEnabled });
+        const status = await invoke("get_status");
+        updateUI(status);
+        const autostart = await invoke("get_autostart");
+        autostartToggle.checked = autostart;
+        syncSwitchVisual(document.getElementById("autostart-switch-btn"), autostartToggle);
+        await checkComponents();
+        await loadPermissions();
+      } catch (err) {
+        console.error("Init error:", err);
+      }
+    }
+
+    async function handleToggleConnection() {
+      errorMsg.classList.add("hidden");
+      toggleBtn.disabled = true;
+
+      try {
+        if (!isRunning) {
+          statusText.textContent = "Conectando...";
+          statusDot.className = "relative inline-flex h-2 w-2 rounded-full bg-indigo-500 animate-pulse";
+          btnText.textContent = "Iniciando túnel...";
+          if (!hasTauri) {
+            await new Promise((r) => setTimeout(r, 550));
+            mockState.running = true;
+            if (mockState.tunnel_provider === "ngrok" && mockState.ngrok_domain) {
+              mockState.public_url = `https://${mockState.ngrok_domain}`;
+            } else {
+              mockState.public_url = "https://spark-bridge-demo.trycloudflare.com";
+            }
+            updateUI(mockState);
+            toast("Túnel ativo! URL MCP pronta para cópia.");
+          } else {
+            const status = await invoke("start_bridge");
+            updateUI(status);
+            toast("Conexão iniciada! Copie a URL MCP.");
+          }
+        } else {
+          btnText.textContent = "Encerrando...";
+          if (!hasTauri) {
+            await new Promise((r) => setTimeout(r, 250));
+            mockState.running = false;
+            updateUI(mockState);
+            toast("Conexão encerrada.");
+          } else {
+            const status = await invoke("stop_bridge");
+            updateUI(status);
+            toast("Conexão encerrada.");
+          }
+        }
+      } catch (err) {
+        errorMsg.textContent = "Erro: " + err;
+        errorMsg.classList.remove("hidden");
+        updateUI(currentStatus || mockState);
+      } finally {
+        toggleBtn.disabled = false;
+      }
+    }
+
+    toggleBtn.addEventListener("click", handleToggleConnection);
+
+    async function handleTestHandshake() {
+      if (!isRunning) {
+        toast("Inicie a conexão antes de testar o handshake.", "error");
+        return;
+      }
+      testBtn.disabled = true;
+      testResult.className = "rounded-md border bg-muted/50 px-3.5 py-2.5 text-xs font-medium text-foreground";
+      testResult.textContent = "Executando handshake MCP (initialize + tools/list)...";
+
+      try {
+        if (!hasTauri) {
+          await new Promise((r) => setTimeout(r, 400));
+          testResult.className = "rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-medium text-emerald-600 dark:text-emerald-400";
+          testResult.textContent = "✓ Handshake MCP concluído com sucesso (14 ms · 15 ferramentas · servidor v0.17.0)";
+          metricLatency.textContent = "14 ms";
+          metricLatency.className = "mt-1 font-mono text-sm font-semibold text-emerald-500";
+        } else {
+          const result = await invoke("test_connection");
+          if (result.ok) {
+            testResult.className = "rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-medium text-emerald-600 dark:text-emerald-400";
+            const tools = result.tools_count != null ? ` · ${result.tools_count} ferramentas` : "";
+            const version = result.server_version ? ` · servidor v${result.server_version}` : "";
+            testResult.textContent = `✓ ${result.message} (${result.latency_ms} ms${tools}${version})`;
+            metricLatency.textContent = `${result.latency_ms} ms`;
+            metricLatency.className = "mt-1 font-mono text-sm font-semibold text-emerald-500";
+          } else {
+            testResult.className = "rounded-md border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-xs font-medium text-destructive";
+            testResult.textContent = `✕ ${result.message}`;
+          }
+        }
+      } catch (err) {
+        testResult.className = "rounded-md border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-xs font-medium text-destructive";
+        testResult.textContent = "✕ Erro no teste: " + err;
+      } finally {
+        testBtn.disabled = !isRunning;
+      }
+    }
+
+    testBtn.addEventListener("click", handleTestHandshake);
+
+    // ---------- Alert Dialog para Novo Token ----------
+    const confirmModal = document.getElementById("confirm-modal");
+    const confirmCancel = document.getElementById("confirm-cancel");
+    const confirmProceed = document.getElementById("confirm-proceed");
+
+    regenerateBtn.addEventListener("click", () => {
+      confirmModal.classList.remove("hidden");
+    });
+
+    confirmCancel.addEventListener("click", () => {
+      confirmModal.classList.add("hidden");
+    });
+
+    confirmProceed.addEventListener("click", async () => {
+      confirmModal.classList.add("hidden");
+      if (!hasTauri) {
+        mockState.token = "sb_live_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        updateUI(mockState);
+        toast("Novo token gerado e anterior revogado.");
+        return;
+      }
+      try {
+        const status = await invoke("regenerate_token");
+        updateUI(status);
+        toast("Novo token gerado. Copie a nova URL MCP.");
+      } catch (err) {
+        errorMsg.textContent = "Erro ao gerar novo token: " + err;
+        errorMsg.classList.remove("hidden");
+      }
+    });
+
+    tokenEyeBtn.addEventListener("click", () => {
+      const hidden = apiTokenInput.type === "password";
+      apiTokenInput.type = hidden ? "text" : "password";
+      tokenEyeBtn.textContent = hidden ? "Ocultar" : "Mostrar";
+    });
+
+    oauthSecretEye.addEventListener("click", () => {
+      const hidden = oauthClientSecretInput.type === "password";
+      oauthClientSecretInput.type = hidden ? "text" : "password";
+      oauthSecretEye.textContent = hidden ? "Ocultar" : "Ver";
+    });
+
+    ngrokEye.addEventListener("click", () => {
+      const hidden = ngrokToken.type === "password";
+      ngrokToken.type = hidden ? "text" : "password";
+      ngrokEye.textContent = hidden ? "Ocultar" : "Mostrar";
+    });
+
+    clientSelect.addEventListener("change", refreshConfig);
+
+    saveOauthRedirectBtn.addEventListener("click", async () => {
+      if (!hasTauri) {
+        mockState.oauth_redirect_uri = oauthRedirectUriInput.value;
+        updateUI(mockState);
+        toast("URI de redirecionamento salva.");
+        return;
+      }
+      saveOauthRedirectBtn.disabled = true;
+      try {
+        const status = await invoke("set_oauth_redirect_uri", { redirectUri: oauthRedirectUriInput.value });
+        updateUI(status);
+        toast("URI de redirecionamento salva para o OAuth do Gemini.");
+      } catch (err) {
+        toast(`Erro ao salvar a URI: ${err}`, "error");
+      } finally {
+        saveOauthRedirectBtn.disabled = false;
+      }
+    });
+
+    async function saveTunnelConfig() {
+      if (!hasTauri) {
+        mockState.tunnel_provider = providerSelect.value;
+        mockState.ngrok_authtoken = ngrokToken.value;
+        mockState.ngrok_domain = ngrokDomain.value;
+        updateUI(mockState);
+        toast("Configuração do túnel salva!");
+        return;
+      }
+      try {
+        const status = await invoke("set_tunnel_config", {
+          provider: providerSelect.value,
+          authtoken: ngrokToken.value,
+          domain: ngrokDomain.value,
+        });
+        updateUI(status);
+        toast("Configuração do túnel salva!");
+      } catch (err) {
+        errorMsg.textContent = "Erro ao salvar túnel: " + err;
+        errorMsg.classList.remove("hidden");
+      }
+    }
+
+    providerSelect.addEventListener("change", () => {
+      refreshProviderUI();
+      saveTunnelConfig();
+    });
+
+    saveTunnelBtn.addEventListener("click", saveTunnelConfig);
+
+    // Bind shadcn switches
+    bindShadcnSwitch("bg-switch-btn", "bg-toggle", async () => {
+      if (!hasTauri) return;
+      try {
+        await invoke("set_background_mode", { enabled: bgToggle.checked });
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    bindShadcnSwitch("anim-switch-btn", "toggle-agent-animation", async () => {
+      const enabled = agentAnimationToggle.checked;
+      saveAnimationPreference(enabled);
+      if (!hasTauri) {
+        toast(enabled ? "Indicador visual ativado." : "Indicador visual desativado.");
+        return;
+      }
+      try {
+        await invoke("set_animation_enabled", { enabled });
+        toast(enabled ? "Animação do agente ativada." : "Animação do agente desativada.");
+      } catch (err) {
+        agentAnimationToggle.checked = !enabled;
+        syncSwitchVisual(document.getElementById("anim-switch-btn"), agentAnimationToggle);
+        saveAnimationPreference(!enabled);
+        toast(`Erro ao configurar a animação: ${err}`, "error");
+      }
+    });
+
+    bindShadcnSwitch("autostart-switch-btn", "autostart-toggle", async () => {
+      if (!hasTauri) return;
+      try {
+        await invoke("set_autostart", { enabled: autostartToggle.checked });
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    async function copyText(text, btn) {
+      if (!text) {
+        toast("Nada para copiar ainda. Inicie a conexão primeiro.", "error");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      toast("Copiado para a área de transferência!");
+      if (btn) {
+        const span = btn.querySelector("span") || btn;
+        const orig = span.textContent;
+        span.textContent = "Copiado!";
+        setTimeout(() => {
+          span.textContent = orig;
+        }, 1500);
+      }
+    }
+
+    document.querySelectorAll(".btn-copy[data-target]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const targetId = btn.getAttribute("data-target");
+        const input = document.getElementById(targetId);
+        copyText(input.value, btn);
+      });
+    });
+
+    copyConfigBtn.addEventListener("click", () => copyText(configOutput.value, copyConfigBtn));
+
+    confirmModal.addEventListener("click", (e) => {
+      if (e.target === confirmModal) confirmModal.classList.add("hidden");
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        confirmModal.classList.add("hidden");
+      }
+    });
+
+    setInterval(async () => {
+      if (!hasTauri) return;
+      try {
+        const status = await invoke("get_status");
+        updateUI(status);
+      } catch {}
+    }, 10000);
+
+    init();
+  </script>
 </body>
 </html>
