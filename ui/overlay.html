@@ -24,7 +24,10 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            visibility: hidden;
+            /* A janela nativa e hidden por padrao; quando ela e mostrada pelo
+               backend, o conteudo ja precisa estar visivel mesmo que o evento
+               Tauri tenha ocorrido antes do carregamento desta pagina. */
+            visibility: visible;
             pointer-events: none;
         }
 

@@ -33,11 +33,17 @@ fn set_agent_activity(active: bool) {
             // do documento não a torna visível no desktop. O overlay também
             // nunca deve bloquear os cliques da pessoa ou do agente.
             if active {
-                let _ = overlay.show();
+                if let Err(error) = overlay.show() {
+                    eprintln!("Nao foi possivel mostrar o overlay do agente: {}", error);
+                }
             } else {
-                let _ = overlay.hide();
+                if let Err(error) = overlay.hide() {
+                    eprintln!("Nao foi possivel ocultar o overlay do agente: {}", error);
+                }
             }
             let _ = overlay.set_ignore_cursor_events(true);
+        } else {
+            eprintln!("Janela agent-overlay nao encontrada; atividade visual indisponivel");
         }
         let _ = app.emit("agent-activity", serde_json::json!({ "active": active }));
     }
