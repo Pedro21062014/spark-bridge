@@ -3,7 +3,7 @@ use axum::{
     extract::{Form, Json as ExtractJson, Query, Request, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
-    response::{Html, IntoResponse, Json, Redirect, Response, Sse},
+    response::{Html, IntoResponse, Json, Response, Sse},
     routing::{get, post},
     Router,
 };
@@ -109,6 +109,7 @@ struct OAuthStore {
     redirect_uri: String,
     codes: HashMap<String, OAuthCode>,
     access_tokens: HashMap<String, String>,
+    refresh_tokens: HashMap<String, String>,
 }
 
 static OAUTH_STORE: OnceLock<StdMutex<OAuthStore>> = OnceLock::new();
@@ -215,6 +216,7 @@ fn oauth_store() -> &'static StdMutex<OAuthStore> {
         redirect_uri: String::new(),
         codes: HashMap::new(),
         access_tokens: HashMap::new(),
+        refresh_tokens: HashMap::new(),
     }))
 }
 
@@ -281,7 +283,7 @@ async fn oauth_authorization_server(headers: HeaderMap) -> impl IntoResponse {
         "token_endpoint": format!("{}/oauth/token", origin),
         "registration_endpoint": format!("{}/oauth/register", origin),
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"]
     }))
@@ -323,9 +325,10 @@ async fn oauth_authorize_submit(Form(params): Form<HashMap<String, String>>) -> 
     }
     let mut location = format!("{}{}code={}", redirect_uri, if redirect_uri.contains('?') { '&' } else { '?' }, oauth_query_value(&code));
     if !state.is_empty() { location.push_str(&format!("&state={}", oauth_query_value(&state))); }
-    // Depois do POST de consentimento, o callback OAuth deve receber GET.
-    // Um 307 preserva POST e faz o callback do Gemini responder 405.
-    Redirect::to(&location).into_response()
+    // O Gemini Connected Apps é compatível com 302 Found para o callback.
+    // Isso também garante que o redirecionamento do POST de consentimento
+    // chegue ao callback do Gemini como uma nova requisição GET.
+    (StatusCode::FOUND, [(header::LOCATION, location)], "").into_response()
 }
 
 async fn oauth_register(ExtractJson(body): ExtractJson<serde_json::Value>) -> impl IntoResponse {
@@ -341,7 +344,32 @@ async fn oauth_register(ExtractJson(body): ExtractJson<serde_json::Value>) -> im
 }
 
 async fn oauth_token(headers: HeaderMap, Form(params): Form<HashMap<String, String>>) -> impl IntoResponse {
-    if params.get("grant_type").map(String::as_str) != Some("authorization_code") {
+    let grant_type = params.get("grant_type").map(String::as_str).unwrap_or("");
+    if grant_type == "refresh_token" {
+        let basic_credentials = headers.get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Basic "))
+            .and_then(|value| BASE64.decode(value).ok())
+            .and_then(|value| String::from_utf8(value).ok())
+            .and_then(|value| value.split_once(':').map(|(client_id, secret)| (client_id.to_string(), secret.to_string())));
+        let provided_client_id = params.get("client_id").cloned().or_else(|| basic_credentials.as_ref().map(|(client_id, _)| client_id.clone()));
+        let provided_secret = params.get("client_secret").cloned().or_else(|| basic_credentials.map(|(_, secret)| secret));
+        let (expected_client_id, expected_secret) = oauth_store().lock()
+            .map(|store| (store.client_id.clone(), store.client_secret.clone()))
+            .unwrap_or_default();
+        if provided_client_id.as_deref() != Some(expected_client_id.as_str()) || provided_secret.as_deref() != Some(expected_secret.as_str()) {
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error":"invalid_client"}))).into_response();
+        }
+        let refresh_token = params.get("refresh_token").cloned().unwrap_or_default();
+        let valid = oauth_store().lock().map(|store| store.refresh_tokens.get(&refresh_token) == Some(&expected_client_id)).unwrap_or(false);
+        if !valid {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid_grant"}))).into_response();
+        }
+        let access_token = random_oauth_value("sb_oauth");
+        if let Ok(mut store) = oauth_store().lock() { store.access_tokens.insert(access_token.clone(), expected_client_id); }
+        return Json(serde_json::json!({"access_token":access_token,"token_type":"Bearer","expires_in":3600,"refresh_token":refresh_token,"scope":"spark:use"})).into_response();
+    }
+    if grant_type != "authorization_code" {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"unsupported_grant_type"}))).into_response();
     }
     let code = params.get("code").cloned().unwrap_or_default();
@@ -368,8 +396,12 @@ async fn oauth_token(headers: HeaderMap, Form(params): Form<HashMap<String, Stri
         if actual != challenge { return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"invalid_grant","error_description":"PKCE verification failed"}))).into_response(); }
     }
     let access_token = random_oauth_value("sb_oauth");
-    if let Ok(mut store) = oauth_store().lock() { store.access_tokens.insert(access_token.clone(), record.client_id); }
-    Json(serde_json::json!({"access_token":access_token,"token_type":"Bearer","expires_in":3600,"scope":"spark:use"})).into_response()
+    let refresh_token = random_oauth_value("sb_refresh");
+    if let Ok(mut store) = oauth_store().lock() {
+        store.access_tokens.insert(access_token.clone(), record.client_id.clone());
+        store.refresh_tokens.insert(refresh_token.clone(), record.client_id);
+    }
+    Json(serde_json::json!({"access_token":access_token,"token_type":"Bearer","expires_in":3600,"refresh_token":refresh_token,"scope":"spark:use"})).into_response()
 }
 
 fn unauthorized_response() -> Response {
