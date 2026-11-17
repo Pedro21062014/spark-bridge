@@ -20,7 +20,7 @@
       },
       {
         "label": "agent-overlay",
-        "title": "Spark Bridge Agent Activity",
+        "title": "",
         "url": "overlay.html",
         "fullscreen": true,
         "transparent": true,

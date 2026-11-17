@@ -42,6 +42,16 @@ fn set_animation_enabled(app: AppHandle, enabled: bool) -> Result<bool, String> 
     Ok(enabled)
 }
 
+#[tauri::command]
+fn get_animation_timeout() -> u64 {
+    server::animation_timeout()
+}
+
+#[tauri::command]
+fn set_animation_timeout(seconds: u64) -> u64 {
+    server::set_animation_timeout(seconds)
+}
+
 #[derive(Serialize, Clone)]
 pub struct BridgeStatus {
     pub running: bool,
@@ -627,6 +637,8 @@ pub fn run() {
             set_permissions,
             check_components,
             set_animation_enabled,
+            get_animation_timeout,
+            set_animation_timeout,
             set_background_mode,
             set_tunnel_config,
             set_oauth_redirect_uri,

@@ -27,7 +27,18 @@ static AGENT_ACTIVE: AtomicBool = AtomicBool::new(false);
 static ANIMATION_ENABLED: AtomicBool = AtomicBool::new(true);
 static ACTIVITY_GENERATION: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
-const ACTIVITY_IDLE_TIMEOUT_SECS: u64 = 10;
+static ACTIVITY_IDLE_TIMEOUT_SECS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(10);
+
+pub fn set_animation_timeout(seconds: u64) -> u64 {
+    let value = seconds.clamp(1, 120);
+    ACTIVITY_IDLE_TIMEOUT_SECS.store(value, Ordering::SeqCst);
+    value
+}
+
+pub fn animation_timeout() -> u64 {
+    ACTIVITY_IDLE_TIMEOUT_SECS.load(Ordering::SeqCst)
+}
 
 pub fn set_animation_enabled(enabled: bool, app: &AppHandle) {
     ANIMATION_ENABLED.store(enabled, Ordering::SeqCst);
@@ -49,7 +60,7 @@ fn set_agent_activity(active: bool) {
         // consecutivas numa unica atividade visual.
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(
-                ACTIVITY_IDLE_TIMEOUT_SECS,
+                animation_timeout(),
             ))
             .await;
             if ACTIVITY_GENERATION.load(Ordering::SeqCst) != generation {
@@ -66,15 +77,17 @@ fn set_agent_activity(active: bool) {
         return;
     }
 
-    AGENT_ACTIVE.store(true, Ordering::SeqCst);
+    let was_active = AGENT_ACTIVE.swap(true, Ordering::SeqCst);
     if let Some(app) = APP_HANDLE.get() {
         if let Some(overlay) = app.get_webview_window("agent-overlay") {
             // A janela começa hidden no tauri.conf.json; alterar apenas o CSS
             // do documento não a torna visível no desktop. O overlay também
             // nunca deve bloquear os cliques da pessoa ou do agente.
-            if active && ANIMATION_ENABLED.load(Ordering::SeqCst) {
-                if let Err(error) = overlay.show() {
-                    eprintln!("Nao foi possivel mostrar o overlay do agente: {}", error);
+            if active {
+                if !was_active && ANIMATION_ENABLED.load(Ordering::SeqCst) {
+                    if let Err(error) = overlay.show() {
+                        eprintln!("Nao foi possivel mostrar o overlay do agente: {}", error);
+                    }
                 }
             } else {
                 if let Err(error) = overlay.hide() {
@@ -2091,10 +2104,6 @@ fn mcp_response_with_headers(
 }
 
 async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
-    // Toda chamada MCP representa atividade do agente, inclusive initialize,
-    // tools/list, ping e chamadas que nao resultam em uma ferramenta de mouse
-    // ou teclado. O desligamento fica atrasado em 10s por set_agent_activity.
-    set_agent_activity(true);
     let icon_url = format!("{}/logo.png", request_origin(&headers));
     // Ecoa sessao/protocolo enviados pelo cliente, se houver.
     let mut session_id = headers
@@ -2124,10 +2133,20 @@ async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
         }
     };
 
+    // Handshake, tools/list, ping, notificacoes e testes locais nao sao uma
+    // acao do agente. O brilho so começa quando o MCP realmente chama uma
+    // ferramenta.
+    let is_agent_action = value.as_array()
+        .map(|items| items.iter().any(is_agent_action_request))
+        .unwrap_or_else(|| is_agent_action_request(&value));
+    if is_agent_action {
+        set_agent_activity(true);
+    }
+
     // Batch (array) ou requisicao simples.
     if let Some(items) = value.as_array() {
         if items.is_empty() {
-            set_agent_activity(false);
+            if is_agent_action { set_agent_activity(false); }
             return mcp_response_with_headers(
                 StatusCode::BAD_REQUEST,
                 serde_json::json!({
@@ -2146,10 +2165,10 @@ async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
             }
         }
         if responses.is_empty() {
-            set_agent_activity(false);
+            if is_agent_action { set_agent_activity(false); }
             return StatusCode::ACCEPTED.into_response();
         }
-        set_agent_activity(false);
+        if is_agent_action { set_agent_activity(false); }
         return mcp_response_with_headers(
             StatusCode::OK,
             serde_json::Value::Array(responses),
@@ -2162,8 +2181,12 @@ async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
         None => StatusCode::ACCEPTED.into_response(),
         Some(resp) => mcp_response_with_headers(StatusCode::OK, resp, &session_id, &protocol_version),
     };
-    set_agent_activity(false);
+    if is_agent_action { set_agent_activity(false); }
     response
+}
+
+fn is_agent_action_request(req: &serde_json::Value) -> bool {
+    req.get("method").and_then(|value| value.as_str()) == Some("tools/call")
 }
 
 /// GET /mcp — stream SSE (server -> client) exigido pelo transporte
