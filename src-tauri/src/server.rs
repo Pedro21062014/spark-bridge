@@ -25,6 +25,9 @@ use xcap::Monitor;
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static AGENT_ACTIVE: AtomicBool = AtomicBool::new(false);
 static ANIMATION_ENABLED: AtomicBool = AtomicBool::new(true);
+static ACTIVITY_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+const ACTIVITY_IDLE_TIMEOUT_SECS: u64 = 10;
 
 pub fn set_animation_enabled(enabled: bool, app: &AppHandle) {
     ANIMATION_ENABLED.store(enabled, Ordering::SeqCst);
@@ -38,7 +41,32 @@ pub fn set_animation_enabled(enabled: bool, app: &AppHandle) {
 }
 
 fn set_agent_activity(active: bool) {
-    AGENT_ACTIVE.store(active, Ordering::SeqCst);
+    if active {
+        ACTIVITY_GENERATION.fetch_add(1, Ordering::SeqCst);
+    } else {
+        let generation = ACTIVITY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        // Aguarda uma janela de inatividade para agrupar chamadas MCP
+        // consecutivas numa unica atividade visual.
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(
+                ACTIVITY_IDLE_TIMEOUT_SECS,
+            ))
+            .await;
+            if ACTIVITY_GENERATION.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            AGENT_ACTIVE.store(false, Ordering::SeqCst);
+            if let Some(app) = APP_HANDLE.get() {
+                if let Some(overlay) = app.get_webview_window("agent-overlay") {
+                    let _ = overlay.hide();
+                }
+                let _ = app.emit("agent-activity", serde_json::json!({ "active": false }));
+            }
+        });
+        return;
+    }
+
+    AGENT_ACTIVE.store(true, Ordering::SeqCst);
     if let Some(app) = APP_HANDLE.get() {
         if let Some(overlay) = app.get_webview_window("agent-overlay") {
             // A janela começa hidden no tauri.conf.json; alterar apenas o CSS
@@ -2031,6 +2059,10 @@ fn mcp_response_with_headers(
 }
 
 async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
+    // Toda chamada MCP representa atividade do agente, inclusive initialize,
+    // tools/list, ping e chamadas que nao resultam em uma ferramenta de mouse
+    // ou teclado. O desligamento fica atrasado em 10s por set_agent_activity.
+    set_agent_activity(true);
     let icon_url = format!("{}/logo.png", request_origin(&headers));
     // Ecoa sessao/protocolo enviados pelo cliente, se houver.
     let mut session_id = headers
@@ -2046,6 +2078,7 @@ async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
     let value = match parsed {
         Ok(v) => v,
         Err(e) => {
+            set_agent_activity(false);
             return mcp_response_with_headers(
                 StatusCode::BAD_REQUEST,
                 serde_json::json!({
@@ -2062,6 +2095,7 @@ async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
     // Batch (array) ou requisicao simples.
     if let Some(items) = value.as_array() {
         if items.is_empty() {
+            set_agent_activity(false);
             return mcp_response_with_headers(
                 StatusCode::BAD_REQUEST,
                 serde_json::json!({
@@ -2080,8 +2114,10 @@ async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
             }
         }
         if responses.is_empty() {
+            set_agent_activity(false);
             return StatusCode::ACCEPTED.into_response();
         }
+        set_agent_activity(false);
         return mcp_response_with_headers(
             StatusCode::OK,
             serde_json::Value::Array(responses),
@@ -2090,10 +2126,12 @@ async fn mcp_post(headers: HeaderMap, body: Bytes) -> Response {
         );
     }
 
-    match handle_mcp_request(&value, &mut session_id, &mut protocol_version, &icon_url).await {
+    let response = match handle_mcp_request(&value, &mut session_id, &mut protocol_version, &icon_url).await {
         None => StatusCode::ACCEPTED.into_response(),
         Some(resp) => mcp_response_with_headers(StatusCode::OK, resp, &session_id, &protocol_version),
-    }
+    };
+    set_agent_activity(false);
+    response
 }
 
 /// GET /mcp — stream SSE (server -> client) exigido pelo transporte
