@@ -34,7 +34,6 @@ pub fn set_animation_enabled(enabled: bool, app: &AppHandle) {
         } else if !enabled {
             let _ = overlay.hide();
         }
-        let _ = overlay.set_ignore_cursor_events(true);
     }
 }
 
