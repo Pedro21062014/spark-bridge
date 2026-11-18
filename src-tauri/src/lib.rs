@@ -1,8 +1,12 @@
 mod ngrok;
 mod server;
+mod security;
 mod tunnel;
 
 use rand::Rng;
+use rand::RngCore;
+use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::collections::BTreeMap;
@@ -15,6 +19,7 @@ use tauri::{
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tokio::process::Child;
 use tokio::sync::{oneshot, Mutex, RwLock};
+use sha2::{Digest, Sha256};
 
 struct BridgeInner {
     running: bool,
@@ -28,6 +33,7 @@ struct BridgeInner {
     server_shutdown: Option<oneshot::Sender<()>>,
     tunnel_child: Option<Child>,
     permissions: Arc<RwLock<BTreeMap<String, bool>>>,
+    security_policy: Arc<RwLock<security::SecurityPolicy>>,
     oauth_client_id: String,
     oauth_client_secret: String,
     oauth_redirect_uri: String,
@@ -125,6 +131,64 @@ fn default_permissions() -> BTreeMap<String, bool> {
     .collect()
 }
 
+fn local_crypto_key() -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"spark-bridge-local-secret-v1");
+    hasher.update(std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default());
+    hasher.update(std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_default());
+    hasher.finalize().into()
+}
+
+fn encrypt_local(value: &str) -> Result<String, String> {
+    let cipher = Aes256Gcm::new_from_slice(&local_crypto_key()).map_err(|e| e.to_string())?;
+    let mut nonce = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce);
+    let encrypted = cipher.encrypt(Nonce::from_slice(&nonce), value.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(format!("{}.{}", BASE64.encode(nonce), BASE64.encode(encrypted)))
+}
+
+fn decrypt_local(value: &str) -> Result<String, String> {
+    let (nonce, ciphertext) = value.split_once('.').ok_or("arquivo protegido inválido")?;
+    let nonce = BASE64.decode(nonce).map_err(|e| e.to_string())?;
+    let ciphertext = BASE64.decode(ciphertext).map_err(|e| e.to_string())?;
+    let cipher = Aes256Gcm::new_from_slice(&local_crypto_key()).map_err(|e| e.to_string())?;
+    let plain = cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()).map_err(|_| "não foi possível descriptografar: este token pertence a outro usuário/computador".to_string())?;
+    String::from_utf8(plain).map_err(|e| e.to_string())
+}
+
+fn protected_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
+    app.path().app_data_dir().map(|d| d.join(name)).map_err(|e| e.to_string())
+}
+
+fn save_protected(app: &AppHandle, name: &str, value: &str) -> Result<(), String> {
+    let path = protected_path(app, name)?;
+    if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    std::fs::write(&path, encrypt_local(value)?).map_err(|e| e.to_string())?;
+    #[cfg(unix)] {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&path) { let mut perms = meta.permissions(); perms.set_mode(0o600); let _ = std::fs::set_permissions(&path, perms); }
+    }
+    Ok(())
+}
+
+fn load_protected(app: &AppHandle, name: &str) -> Option<String> {
+    let raw = std::fs::read_to_string(protected_path(app, name).ok()?).ok()?;
+    decrypt_local(&raw).ok()
+}
+
+#[tauri::command]
+async fn get_security_policy(state: State<'_, AppState>) -> Result<security::SecurityPolicy, String> {
+    Ok(state.0.lock().await.security_policy.read().await.clone())
+}
+
+#[tauri::command]
+async fn set_security_policy(app: AppHandle, state: State<'_, AppState>, policy: security::SecurityPolicy) -> Result<security::SecurityPolicy, String> {
+    let inner = state.0.lock().await;
+    *inner.security_policy.write().await = policy.clone();
+    save_protected(&app, "security_policy.bin", &serde_json::to_string(&policy).map_err(|e| e.to_string())?)?;
+    Ok(policy)
+}
+
 #[tauri::command]
 async fn get_permissions(state: State<'_, AppState>) -> Result<BTreeMap<String, bool>, String> {
     Ok(state.0.lock().await.permissions.read().await.clone())
@@ -213,28 +277,17 @@ fn tunnel_config_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn load_tunnel_config(app: &AppHandle) -> Option<TunnelConfigFile> {
+    if let Some(raw) = load_protected(app, "tunnel_config.bin") {
+        return serde_json::from_str(&raw).ok();
+    }
     let path = tunnel_config_path(app).ok()?;
     let raw = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&raw).ok()
 }
 
 fn save_tunnel_config(app: &AppHandle, cfg: &TunnelConfigFile) -> Result<(), String> {
-    let path = tunnel_config_path(app)?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
     let raw = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
-    std::fs::write(&path, raw).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(&path) {
-            let mut perms = meta.permissions();
-            perms.set_mode(0o600);
-            let _ = std::fs::set_permissions(&path, perms);
-        }
-    }
-    Ok(())
+    save_protected(app, "tunnel_config.bin", &raw)
 }
 
 #[tauri::command]
@@ -282,9 +335,12 @@ async fn set_tunnel_config(
 }
 
 #[tauri::command]
-async fn regenerate_token(state: State<'_, AppState>) -> Result<BridgeStatus, String> {
+async fn regenerate_token(app: AppHandle, state: State<'_, AppState>) -> Result<BridgeStatus, String> {
     let inner = state.0.lock().await;
-    *inner.token.write().await = generate_token();
+    let token = generate_token();
+    *inner.token.write().await = token.clone();
+    save_protected(&app, "access_token.bin", &token)?;
+    server::revoke_oauth_sessions();
     Ok(snapshot(&inner).await)
 }
 
@@ -553,6 +609,7 @@ pub fn run() {
         server_shutdown: None,
         tunnel_child: None,
         permissions: Arc::new(RwLock::new(default_permissions())),
+        security_policy: Arc::new(RwLock::new(security::SecurityPolicy::default())),
         oauth_client_id: "spark-bridge-gemini".to_string(),
         oauth_client_secret: generate_token(),
     })));
@@ -575,6 +632,23 @@ pub fn run() {
                     inner.oauth_redirect_uri = cfg.oauth_redirect_uri;
                 });
             }
+
+            let state = app.state::<AppState>();
+            tauri::async_runtime::block_on(async {
+                let inner = state.0.lock().await;
+                if let Some(token) = load_protected(app.handle(), "access_token.bin") {
+                    *inner.token.write().await = token;
+                } else {
+                    let token = inner.token.read().await.clone();
+                    let _ = save_protected(app.handle(), "access_token.bin", &token);
+                }
+                if let Some(raw) = load_protected(app.handle(), "security_policy.bin") {
+                    if let Ok(policy) = serde_json::from_str::<security::SecurityPolicy>(&raw) {
+                        *inner.security_policy.write().await = policy;
+                    }
+                }
+                server::set_security_policy(inner.security_policy.clone());
+            });
 
             let show_i = MenuItem::with_id(app, "show", "Mostrar Janela", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
@@ -626,6 +700,8 @@ pub fn run() {
             get_status,
             get_permissions,
             set_permissions,
+            get_security_policy,
+            set_security_policy,
             check_components,
             set_animation_enabled,
             get_animation_timeout,

@@ -22,6 +22,7 @@ use tokio::sync::{oneshot, RwLock};
 use sha2::{Digest, Sha256};
 use tower_http::cors::{Any, CorsLayer};
 use xcap::Monitor;
+use crate::security::{self, SecurityPolicy};
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static AGENT_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -168,6 +169,19 @@ struct OAuthStore {
 
 static OAUTH_STORE: OnceLock<StdMutex<OAuthStore>> = OnceLock::new();
 static PERMISSIONS: OnceLock<Arc<RwLock<BTreeMap<String, bool>>>> = OnceLock::new();
+static SECURITY_POLICY: OnceLock<Arc<RwLock<SecurityPolicy>>> = OnceLock::new();
+
+pub fn set_security_policy(policy: Arc<RwLock<SecurityPolicy>>) {
+    let _ = SECURITY_POLICY.set(policy);
+}
+
+pub fn revoke_oauth_sessions() {
+    if let Ok(mut store) = oauth_store().lock() {
+        store.access_tokens.clear();
+        store.refresh_tokens.clear();
+        store.codes.clear();
+    }
+}
 
 /// Logo oficial do Spark Bridge (embutido no binario).
 /// Servido em GET /logo.png e GET /icon.png para clientes MCP/agentes
@@ -1315,6 +1329,14 @@ async fn keyboard_key(Json(req): Json<KeyboardKeyReq>) -> impl IntoResponse {
 }
 
 async fn terminal_exec(Json(req): Json<TerminalExecReq>) -> impl IntoResponse {
+    if let Some(policy) = SECURITY_POLICY.get() {
+        let policy = policy.read().await.clone();
+        if let Some(reason) = security::tool_block_reason(&policy, "terminal_exec")
+            .or_else(|| security::command_block_reason(&policy, &req.command))
+        {
+            return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": reason }))).into_response();
+        }
+    }
     let mut cmd = if cfg!(target_os = "windows") {
         let mut c = Command::new("cmd");
         c.args(["/C", &req.command]);
@@ -1518,6 +1540,14 @@ async fn open_url(Json(req): Json<OpenUrlReq>) -> impl IntoResponse {
             }),
         )
             .into_response();
+    }
+    if let Some(policy) = SECURITY_POLICY.get() {
+        let policy = policy.read().await.clone();
+        if let Some(reason) = security::tool_block_reason(&policy, "open_url")
+            .or_else(|| security::url_block_reason(&policy, &url))
+        {
+            return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": reason }))).into_response();
+        }
     }
 
     let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
@@ -1753,6 +1783,26 @@ async fn call_tool(name: &str, args: serde_json::Value) -> (serde_json::Value, b
     if let Some(permissions) = PERMISSIONS.get() {
         if !permissions.read().await.get(name).copied().unwrap_or(false) {
             return (serde_json::json!([{ "type": "text", "text": format!("Ferramenta bloqueada pela aba Segurança: {}", name) }]), true);
+        }
+    }
+    if let Some(policy) = SECURITY_POLICY.get() {
+        let policy = policy.read().await.clone();
+        if let Some(reason) = security::tool_block_reason(&policy, name) {
+            return (serde_json::json!([{ "type": "text", "text": format!("Bloqueado pela política de segurança: {}", reason) }]), true);
+        }
+        if name == "terminal_exec" {
+            if let Some(command) = args.get("command").and_then(|v| v.as_str()) {
+                if let Some(reason) = security::command_block_reason(&policy, command) {
+                    return (serde_json::json!([{ "type": "text", "text": format!("Bloqueado pela política de segurança: {}", reason) }]), true);
+                }
+            }
+        }
+        if name == "open_url" {
+            if let Some(url) = args.get("url").and_then(|v| v.as_str()) {
+                if let Some(reason) = security::url_block_reason(&policy, url) {
+                    return (serde_json::json!([{ "type": "text", "text": format!("Bloqueado pela política de segurança: {}", reason) }]), true);
+                }
+            }
         }
     }
     match name {

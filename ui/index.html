@@ -214,7 +214,7 @@
           <div class="flex items-center gap-2">
             <span class="text-sm font-semibold tracking-tight">Spark Bridge</span>
             <span class="inline-flex items-center rounded-md border bg-secondary px-1.5 py-0.5 font-mono text-[10px] font-medium text-secondary-foreground">
-              v0.21.0
+              v0.22.0
             </span>
           </div>
           <span class="text-[11px] text-muted-foreground hidden sm:inline">MCP &amp; Desktop Automation Bridge</span>
@@ -914,11 +914,33 @@
           </p>
         </div>
       </section>
+
+      <section class="rounded-xl border bg-card text-card-foreground shadow-sm p-5 space-y-4">
+        <div class="flex items-center justify-between gap-3">
+          <div><h2 class="text-sm font-semibold tracking-tight">Política contextual do agente</h2><p class="text-xs text-muted-foreground">Filtros aplicados antes de abrir sites, executar comandos ou iniciar aplicativos.</p></div>
+          <select id="security-profile" class="h-8 rounded-md border bg-background px-2 text-xs"><option value="safe">Seguro</option><option value="custom">Personalizado</option><option value="unrestricted">Tudo liberado</option></select>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-xs"><input id="block-unknown-domains" type="checkbox" class="accent-primary"> Bloquear domínios fora da lista permitida</label>
+          <label class="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-xs"><input id="block-unknown-commands" type="checkbox" class="accent-primary"> Bloquear comandos fora da lista permitida</label>
+          <label class="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-xs"><input id="block-unknown-apps" type="checkbox" class="accent-primary"> Bloquear aplicativos fora da lista permitida</label>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="space-y-1"><span class="text-[11px] font-medium text-muted-foreground">Domínios permitidos</span><textarea id="allowed-domains" rows="3" class="w-full rounded-md border bg-background p-2 font-mono text-[11px]" placeholder="um domínio por linha"></textarea></label>
+          <label class="space-y-1"><span class="text-[11px] font-medium text-muted-foreground">Domínios bloqueados</span><textarea id="blocked-domains" rows="3" class="w-full rounded-md border bg-background p-2 font-mono text-[11px]" placeholder="ex.: example.com"></textarea></label>
+          <label class="space-y-1"><span class="text-[11px] font-medium text-muted-foreground">Comandos permitidos</span><textarea id="allowed-commands" rows="3" class="w-full rounded-md border bg-background p-2 font-mono text-[11px]" placeholder="trechos como git status"></textarea></label>
+          <label class="space-y-1"><span class="text-[11px] font-medium text-muted-foreground">Comandos bloqueados</span><textarea id="blocked-commands" rows="3" class="w-full rounded-md border bg-background p-2 font-mono text-[11px]" placeholder="um trecho por linha"></textarea></label>
+          <label class="space-y-1"><span class="text-[11px] font-medium text-muted-foreground">Aplicativos permitidos</span><textarea id="allowed-apps" rows="3" class="w-full rounded-md border bg-background p-2 font-mono text-[11px]" placeholder="ex.: git, python"></textarea></label>
+          <label class="space-y-1"><span class="text-[11px] font-medium text-muted-foreground">Aplicativos bloqueados</span><textarea id="blocked-apps" rows="3" class="w-full rounded-md border bg-background p-2 font-mono text-[11px]" placeholder="ex.: powershell, reg"></textarea></label>
+        </div>
+        <label class="space-y-1 block"><span class="text-[11px] font-medium text-muted-foreground">Requisições/ferramentas bloqueadas</span><textarea id="blocked-requests" rows="2" class="w-full rounded-md border bg-background p-2 font-mono text-[11px]" placeholder="ex.: terminal_exec ou open_url"></textarea></label>
+        <div class="flex justify-end"><button id="save-security-policy-btn" type="button" class="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground">Salvar política</button></div>
+      </section>
     </div>
 
     <!-- Footer -->
     <footer class="pt-2 pb-6 text-center text-[11px] text-muted-foreground">
-      Spark Bridge v0.21.0 · Tauri + Rust · MCP Streamable HTTP
+      Spark Bridge v0.22.0 · Tauri + Rust · MCP Streamable HTTP
     </footer>
   </div>
 
@@ -1135,6 +1157,9 @@
     const disableAllBtn = document.getElementById("disable-all-btn");
     const checkComponentsBtn = document.getElementById("check-components-btn");
     const componentsResult = document.getElementById("components-result");
+    const securityProfile = document.getElementById("security-profile");
+    const securityPolicySave = document.getElementById("save-security-policy-btn");
+    const policyFields = ["allowed-domains", "blocked-domains", "allowed-commands", "blocked-commands", "allowed-apps", "blocked-apps", "blocked-requests"];
 
     let isRunning = false;
     let currentStatus = null;
@@ -1269,6 +1294,36 @@
     }
 
     savePermissionsBtn.addEventListener("click", savePermissions);
+
+    function lines(value) { return String(value || "").split(/\r?\n/).map(v => v.trim()).filter(Boolean); }
+    function fillSecurityPolicy(policy) {
+      const p = policy || {};
+      securityProfile.value = p.profile || "safe";
+      document.getElementById("block-unknown-domains").checked = !!p.block_unknown_domains;
+      document.getElementById("block-unknown-commands").checked = !!p.block_unknown_commands;
+      document.getElementById("block-unknown-apps").checked = !!p.block_unknown_apps;
+      const mapping = { "allowed-domains": "allowed_domains", "blocked-domains": "blocked_domains", "allowed-commands": "allowed_commands", "blocked-commands": "blocked_commands", "allowed-apps": "allowed_apps", "blocked-apps": "blocked_apps", "blocked-requests": "blocked_requests" };
+      policyFields.forEach(id => { document.getElementById(id).value = (p[mapping[id]] || []).join("\n"); });
+    }
+    function readSecurityPolicy() {
+      return { profile: securityProfile.value,
+        block_unknown_domains: document.getElementById("block-unknown-domains").checked, block_unknown_commands: document.getElementById("block-unknown-commands").checked, block_unknown_apps: document.getElementById("block-unknown-apps").checked,
+        allowed_domains: lines(document.getElementById("allowed-domains").value), blocked_domains: lines(document.getElementById("blocked-domains").value), allowed_commands: lines(document.getElementById("allowed-commands").value), blocked_commands: lines(document.getElementById("blocked-commands").value), allowed_apps: lines(document.getElementById("allowed-apps").value), blocked_apps: lines(document.getElementById("blocked-apps").value), blocked_requests: lines(document.getElementById("blocked-requests").value) };
+    }
+    async function loadSecurityPolicy() {
+      try { fillSecurityPolicy(hasTauri ? await invoke("get_security_policy") : { profile: "safe", blocked_commands: ["format ", "rm -rf"] }); }
+      catch (err) { toast(`Erro ao carregar política: ${err}`, "error"); }
+    }
+    async function saveSecurityPolicy() {
+      const policy = readSecurityPolicy();
+      if (policy.profile === "unrestricted") { policy.block_unknown_domains = false; policy.block_unknown_commands = false; policy.block_unknown_apps = false; policy.blocked_requests = []; policy.blocked_commands = []; policy.blocked_domains = []; }
+      if (policy.profile === "safe") { policy.block_unknown_domains = false; policy.block_unknown_commands = false; policy.block_unknown_apps = false; }
+      try { if (hasTauri) await invoke("set_security_policy", { policy }); fillSecurityPolicy(policy); toast("Política de segurança salva."); }
+      catch (err) { toast(`Erro ao salvar política: ${err}`, "error"); }
+    }
+    securityProfile.addEventListener("change", () => { if (securityProfile.value === "unrestricted") toast("Tudo liberado: as permissões individuais continuam sendo respeitadas."); });
+    securityPolicySave.addEventListener("click", saveSecurityPolicy);
+
     enableAllBtn.addEventListener("click", () => {
       Object.keys(TOOL_META).forEach((k) => (currentPermissionsMap[k] = true));
       renderPermissions(currentPermissionsMap, permSearch.value);
@@ -1516,6 +1571,7 @@
         tauriMissing.classList.remove("hidden");
         updateUI(mockState);
         loadPermissions();
+        loadSecurityPolicy();
         return;
       }
 
@@ -1529,6 +1585,7 @@
         syncSwitchVisual(document.getElementById("autostart-switch-btn"), autostartToggle);
         await checkComponents();
         await loadPermissions();
+        await loadSecurityPolicy();
       } catch (err) {
         console.error("Init error:", err);
       }
@@ -1595,7 +1652,7 @@
         if (!hasTauri) {
           await new Promise((r) => setTimeout(r, 400));
           testResult.className = "rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-medium text-emerald-600 dark:text-emerald-400";
-          testResult.textContent = "✓ Handshake MCP concluído com sucesso (14 ms · 15 ferramentas · servidor v0.21.0)";
+          testResult.textContent = "✓ Handshake MCP concluído com sucesso (14 ms · 15 ferramentas · servidor v0.22.0)";
           metricLatency.textContent = "14 ms";
           metricLatency.className = "mt-1 font-mono text-sm font-semibold text-emerald-500";
         } else {
