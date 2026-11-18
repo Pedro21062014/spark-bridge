@@ -13,6 +13,7 @@ use image::{DynamicImage, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex as StdMutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager};
@@ -29,6 +30,46 @@ static ACTIVITY_GENERATION: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 static ACTIVITY_IDLE_TIMEOUT_SECS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(10);
+
+/// Resolve o executável do Tesseract mesmo quando o instalador do Windows
+/// nao atualizou o PATH do processo que ja estava aberto.
+pub fn resolve_tesseract() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(path) = std::env::var("TESSERACT_PATH") {
+        candidates.push(PathBuf::from(path));
+    }
+
+    let checker = if cfg!(target_os = "windows") { "where" } else { "which" };
+    if let Ok(output) = std::process::Command::new(checker).arg("tesseract").output() {
+        if output.status.success() {
+            if let Some(path) = String::from_utf8_lossy(&output.stdout).lines().next() {
+                candidates.push(PathBuf::from(path.trim()));
+            }
+        }
+    }
+
+    if cfg!(target_os = "windows") {
+        let program_files = std::env::var("ProgramFiles")
+            .unwrap_or_else(|_| r"C:\Program Files".to_string());
+        let program_files_x86 = std::env::var("ProgramFiles(x86)")
+            .unwrap_or_else(|_| r"C:\Program Files (x86)".to_string());
+        let local_app_data = std::env::var("LOCALAPPDATA")
+            .unwrap_or_else(|_| String::new());
+        candidates.extend([
+            PathBuf::from(&program_files).join("Tesseract-OCR/tesseract.exe"),
+            PathBuf::from(&program_files_x86).join("Tesseract-OCR/tesseract.exe"),
+            PathBuf::from(&local_app_data).join("Tesseract-OCR/tesseract.exe"),
+            PathBuf::from(r"C:\Tesseract-OCR\tesseract.exe"),
+        ]);
+    } else {
+        candidates.extend([
+            PathBuf::from("/usr/bin/tesseract"),
+            PathBuf::from("/usr/local/bin/tesseract"),
+        ]);
+    }
+
+    candidates.into_iter().find(|path| path.is_file())
+}
 
 pub fn set_animation_timeout(seconds: u64) -> u64 {
     let value = seconds.clamp(1, 120);
@@ -943,22 +984,28 @@ async fn ocr_current_screen() -> Result<serde_json::Value, String> {
     ));
     std::fs::write(&tmp_path, &jpeg).map_err(|e| e.to_string())?;
 
-    let output = tokio::process::Command::new("tesseract")
-        .arg(&tmp_path)
-        .arg("stdout")
-        .arg("tsv")
-        .output()
-        .await;
+    let tesseract = resolve_tesseract().ok_or_else(|| {
+        "Tesseract nao encontrado. Reabra o Spark Bridge apos instalar ou defina TESSERACT_PATH para o caminho de tesseract.exe".to_string()
+    });
+    let output = match tesseract {
+        Ok(path) => tokio::process::Command::new(path)
+            .arg(&tmp_path)
+            .arg("stdout")
+            .arg("tsv")
+            .output()
+            .await,
+        Err(error) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(error);
+        }
+    };
     let _ = std::fs::remove_file(&tmp_path);
 
     let output = match output {
         Ok(o) => o,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(
-                "tesseract nao encontrado no PATH. Instale para usar OCR: Windows: winget install UB-Mannheim.TesseractOCR | Linux: sudo apt install tesseract-ocr | macOS: brew install tesseract"
-                    .to_string(),
-            );
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(
+            "Tesseract foi detectado, mas o executável não pôde ser iniciado. Verifique a instalação ou defina TESSERACT_PATH.".to_string()
+        ),
         Err(e) => return Err(e.to_string()),
     };
 

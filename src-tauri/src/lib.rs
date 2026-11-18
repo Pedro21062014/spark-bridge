@@ -5,7 +5,6 @@ mod tunnel;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command as StdCommand;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tauri::{
@@ -84,18 +83,10 @@ pub struct ComponentStatus {
     pub install_hint: String,
 }
 
-fn command_available(command: &str) -> bool {
-    let checker = if cfg!(target_os = "windows") { "where" } else { "which" };
-    StdCommand::new(checker)
-        .arg(command)
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-}
-
 #[tauri::command]
 fn check_components() -> Vec<ComponentStatus> {
-    let tesseract = command_available("tesseract");
+    let tesseract_path = server::resolve_tesseract();
+    let tesseract = tesseract_path.is_some();
     vec![
         ComponentStatus {
             name: "Captura de tela".into(),
@@ -113,11 +104,11 @@ fn check_components() -> Vec<ComponentStatus> {
             name: "OCR (Tesseract)".into(),
             installed: tesseract,
             detail: if tesseract {
-                "tesseract encontrado no PATH".into()
+                format!("Tesseract encontrado em {}", tesseract_path.unwrap().display())
             } else {
-                "tesseract nao encontrado no PATH".into()
+                "Tesseract não encontrado no PATH nem nos diretórios padrão do Windows".into()
             },
-            install_hint: "Windows: winget install UB-Mannheim.TesseractOCR | Linux: sudo apt install tesseract-ocr | macOS: brew install tesseract".into(),
+            install_hint: "Windows: instale UB Mannheim e reabra o Spark Bridge; ou defina TESSERACT_PATH para o caminho de tesseract.exe. Linux: sudo apt install tesseract-ocr | macOS: brew install tesseract".into(),
         },
     ]
 }
