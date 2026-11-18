@@ -84,13 +84,22 @@ pub fn animation_timeout() -> u64 {
 
 pub fn set_animation_enabled(enabled: bool, app: &AppHandle) {
     ANIMATION_ENABLED.store(enabled, Ordering::SeqCst);
-    if let Some(overlay) = app.get_webview_window("agent-overlay") {
-        if enabled && AGENT_ACTIVE.load(Ordering::SeqCst) {
-            let _ = overlay.show();
-        } else if !enabled {
-            let _ = overlay.hide();
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if let Some(overlay) = app.get_webview_window("agent-overlay") {
+            if enabled && AGENT_ACTIVE.load(Ordering::SeqCst) {
+                let _ = overlay.show();
+            } else if !enabled {
+                let _ = overlay.hide();
+            }
         }
-    }
+    }));
+}
+
+fn safe_overlay_call<F>(operation: F)
+where
+    F: FnOnce() + std::panic::UnwindSafe,
+{
+    let _ = std::panic::catch_unwind(operation);
 }
 
 fn set_agent_activity(active: bool) {
@@ -110,10 +119,14 @@ fn set_agent_activity(active: bool) {
             }
             AGENT_ACTIVE.store(false, Ordering::SeqCst);
             if let Some(app) = APP_HANDLE.get() {
-                if let Some(overlay) = app.get_webview_window("agent-overlay") {
-                    let _ = overlay.hide();
-                }
-                let _ = app.emit("agent-activity", serde_json::json!({ "active": false }));
+                safe_overlay_call(std::panic::AssertUnwindSafe(|| {
+                    if let Some(overlay) = app.get_webview_window("agent-overlay") {
+                        let _ = overlay.hide();
+                    }
+                }));
+                safe_overlay_call(std::panic::AssertUnwindSafe(|| {
+                    let _ = app.emit("agent-activity", serde_json::json!({ "active": false }));
+                }));
             }
         });
         return;
@@ -121,26 +134,28 @@ fn set_agent_activity(active: bool) {
 
     let was_active = AGENT_ACTIVE.swap(true, Ordering::SeqCst);
     if let Some(app) = APP_HANDLE.get() {
-        if let Some(overlay) = app.get_webview_window("agent-overlay") {
-            // A janela começa hidden no tauri.conf.json; alterar apenas o CSS
-            // do documento não a torna visível no desktop. O overlay também
-            // nunca deve bloquear os cliques da pessoa ou do agente.
-            if active {
-                if !was_active && ANIMATION_ENABLED.load(Ordering::SeqCst) {
-                    if let Err(error) = overlay.show() {
-                        eprintln!("Nao foi possivel mostrar o overlay do agente: {}", error);
+        safe_overlay_call(std::panic::AssertUnwindSafe(|| {
+            if let Some(overlay) = app.get_webview_window("agent-overlay") {
+                // A janela começa hidden no tauri.conf.json; alterar apenas o CSS
+                // do documento não a torna visível no desktop. O overlay também
+                // nunca deve bloquear os cliques da pessoa ou do agente.
+                if active {
+                    if !was_active && ANIMATION_ENABLED.load(Ordering::SeqCst) {
+                        if let Err(error) = overlay.show() {
+                            eprintln!("Nao foi possivel mostrar o overlay do agente: {}", error);
+                        }
                     }
-                }
-            } else {
-                if let Err(error) = overlay.hide() {
+                } else if let Err(error) = overlay.hide() {
                     eprintln!("Nao foi possivel ocultar o overlay do agente: {}", error);
                 }
+                let _ = overlay.set_ignore_cursor_events(true);
+            } else {
+                eprintln!("Janela agent-overlay nao encontrada; atividade visual indisponivel");
             }
-            let _ = overlay.set_ignore_cursor_events(true);
-        } else {
-            eprintln!("Janela agent-overlay nao encontrada; atividade visual indisponivel");
-        }
-        let _ = app.emit("agent-activity", serde_json::json!({ "active": active }));
+        }));
+        safe_overlay_call(std::panic::AssertUnwindSafe(|| {
+            let _ = app.emit("agent-activity", serde_json::json!({ "active": active }));
+        }));
     }
 }
 
@@ -824,9 +839,11 @@ fn hide_overlay_for_capture() -> bool {
     let was_active = AGENT_ACTIVE.load(Ordering::SeqCst)
         && ANIMATION_ENABLED.load(Ordering::SeqCst);
     if let Some(app) = APP_HANDLE.get() {
-        if let Some(overlay) = app.get_webview_window("agent-overlay") {
-            let _ = overlay.hide();
-        }
+        safe_overlay_call(std::panic::AssertUnwindSafe(|| {
+            if let Some(overlay) = app.get_webview_window("agent-overlay") {
+                let _ = overlay.hide();
+            }
+        }));
     }
     was_active
 }
@@ -836,10 +853,12 @@ fn restore_overlay_after_capture(was_active: bool) {
         return;
     }
     if let Some(app) = APP_HANDLE.get() {
-        if let Some(overlay) = app.get_webview_window("agent-overlay") {
-            let _ = overlay.show();
-            let _ = overlay.set_ignore_cursor_events(true);
-        }
+        safe_overlay_call(std::panic::AssertUnwindSafe(|| {
+            if let Some(overlay) = app.get_webview_window("agent-overlay") {
+                let _ = overlay.show();
+                let _ = overlay.set_ignore_cursor_events(true);
+            }
+        }));
     }
 }
 
