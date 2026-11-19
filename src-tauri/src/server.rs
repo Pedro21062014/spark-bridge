@@ -101,6 +101,13 @@ fn run_overlay_on_main_thread<F>(app: AppHandle, operation: F)
 where
     F: FnOnce() + Send + 'static,
 {
+    // No Windows, uma WebView2 transparente em fullscreen pode encerrar o
+    // processo quando e mostrada a partir de uma requisicao HTTP em segundo
+    // plano. O MCP deve permanecer estavel; a janela visual fica desativada
+    // nesse sistema ate que uma implementacao nativa segura seja usada.
+    if cfg!(target_os = "windows") {
+        return;
+    }
     let _ = app.run_on_main_thread(move || {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation));
     });
