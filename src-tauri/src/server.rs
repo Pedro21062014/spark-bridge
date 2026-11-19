@@ -84,22 +84,26 @@ pub fn animation_timeout() -> u64 {
 
 pub fn set_animation_enabled(enabled: bool, app: &AppHandle) {
     ANIMATION_ENABLED.store(enabled, Ordering::SeqCst);
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if let Some(overlay) = app.get_webview_window("agent-overlay") {
+    let app = app.clone();
+    let window_app = app.clone();
+    run_overlay_on_main_thread(app, move || {
+        if let Some(overlay) = window_app.get_webview_window("agent-overlay") {
             if enabled && AGENT_ACTIVE.load(Ordering::SeqCst) {
                 let _ = overlay.show();
             } else if !enabled {
                 let _ = overlay.hide();
             }
         }
-    }));
+    });
 }
 
-fn safe_overlay_call<F>(operation: F)
+fn run_overlay_on_main_thread<F>(app: AppHandle, operation: F)
 where
-    F: FnOnce() + std::panic::UnwindSafe,
+    F: FnOnce() + Send + 'static,
 {
-    let _ = std::panic::catch_unwind(operation);
+    let _ = app.run_on_main_thread(move || {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation));
+    });
 }
 
 fn set_agent_activity(active: bool) {
@@ -119,14 +123,18 @@ fn set_agent_activity(active: bool) {
             }
             AGENT_ACTIVE.store(false, Ordering::SeqCst);
             if let Some(app) = APP_HANDLE.get() {
-                safe_overlay_call(std::panic::AssertUnwindSafe(|| {
-                    if let Some(overlay) = app.get_webview_window("agent-overlay") {
+                let overlay_app = app.clone();
+                let window_app = overlay_app.clone();
+                run_overlay_on_main_thread(overlay_app, move || {
+                    if let Some(overlay) = window_app.get_webview_window("agent-overlay") {
                         let _ = overlay.hide();
                     }
-                }));
-                safe_overlay_call(std::panic::AssertUnwindSafe(|| {
-                    let _ = app.emit("agent-activity", serde_json::json!({ "active": false }));
-                }));
+                });
+                let event_app = app.clone();
+                let emit_app = event_app.clone();
+                run_overlay_on_main_thread(event_app, move || {
+                    let _ = emit_app.emit("agent-activity", serde_json::json!({ "active": false }));
+                });
             }
         });
         return;
@@ -134,8 +142,10 @@ fn set_agent_activity(active: bool) {
 
     let was_active = AGENT_ACTIVE.swap(true, Ordering::SeqCst);
     if let Some(app) = APP_HANDLE.get() {
-        safe_overlay_call(std::panic::AssertUnwindSafe(|| {
-            if let Some(overlay) = app.get_webview_window("agent-overlay") {
+        let overlay_app = app.clone();
+        let window_app = overlay_app.clone();
+        run_overlay_on_main_thread(overlay_app, move || {
+            if let Some(overlay) = window_app.get_webview_window("agent-overlay") {
                 // A janela começa hidden no tauri.conf.json; alterar apenas o CSS
                 // do documento não a torna visível no desktop. O overlay também
                 // nunca deve bloquear os cliques da pessoa ou do agente.
@@ -152,10 +162,12 @@ fn set_agent_activity(active: bool) {
             } else {
                 eprintln!("Janela agent-overlay nao encontrada; atividade visual indisponivel");
             }
-        }));
-        safe_overlay_call(std::panic::AssertUnwindSafe(|| {
-            let _ = app.emit("agent-activity", serde_json::json!({ "active": active }));
-        }));
+        });
+        let event_app = app.clone();
+        let emit_app = event_app.clone();
+        run_overlay_on_main_thread(event_app, move || {
+            let _ = emit_app.emit("agent-activity", serde_json::json!({ "active": active }));
+        });
     }
 }
 
@@ -839,11 +851,13 @@ fn hide_overlay_for_capture() -> bool {
     let was_active = AGENT_ACTIVE.load(Ordering::SeqCst)
         && ANIMATION_ENABLED.load(Ordering::SeqCst);
     if let Some(app) = APP_HANDLE.get() {
-        safe_overlay_call(std::panic::AssertUnwindSafe(|| {
-            if let Some(overlay) = app.get_webview_window("agent-overlay") {
+        let overlay_app = app.clone();
+        let window_app = overlay_app.clone();
+        run_overlay_on_main_thread(overlay_app, move || {
+            if let Some(overlay) = window_app.get_webview_window("agent-overlay") {
                 let _ = overlay.hide();
             }
-        }));
+        });
     }
     was_active
 }
@@ -853,12 +867,14 @@ fn restore_overlay_after_capture(was_active: bool) {
         return;
     }
     if let Some(app) = APP_HANDLE.get() {
-        safe_overlay_call(std::panic::AssertUnwindSafe(|| {
-            if let Some(overlay) = app.get_webview_window("agent-overlay") {
+        let overlay_app = app.clone();
+        let window_app = overlay_app.clone();
+        run_overlay_on_main_thread(overlay_app, move || {
+            if let Some(overlay) = window_app.get_webview_window("agent-overlay") {
                 let _ = overlay.show();
                 let _ = overlay.set_ignore_cursor_events(true);
             }
-        }));
+        });
     }
 }
 
@@ -2172,7 +2188,15 @@ async fn handle_mcp_request(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({}));
-            let (content, is_error) = call_tool(name, args).await;
+            let tool_name = name.to_string();
+            let tool_result = tokio::spawn(async move { call_tool(&tool_name, args).await }).await;
+            let (content, is_error) = match tool_result {
+                Ok(result) => result,
+                Err(error) => (
+                    serde_json::json!([{ "type": "text", "text": format!("Falha interna ao executar a ferramenta MCP: {}", error) }]),
+                    true,
+                ),
+            };
             serde_json::json!({ "content": content, "isError": is_error })
         }
         "resources/list" => serde_json::json!({ "resources": [] }),
